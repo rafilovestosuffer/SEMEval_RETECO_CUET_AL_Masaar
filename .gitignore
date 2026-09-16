@@ -216,3 +216,27 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ---------------------------------------------------------------------------
+# RETECO / CUET_AL_Masaar — credentials, caches and large run artifacts
+# CLAUDE.md §5 (integrity) and §6 (environment). Never commit key material.
+# ---------------------------------------------------------------------------
+kaggle.json
+.kaggle/
+*.key
+*.pem
+
+# Downloaded corpora (organizer data, re-downloadable; far too large for git)
+reteco_data/
+
+# Embeddings, LLM generations, pulled Kaggle kernel output
+cache/*
+!cache/.gitkeep
+
+# TREC run files (regenerable; the ledger is the record of record)
+results/runs/*
+!results/runs/.gitkeep
+
+# Job logs
+logs/
+*.log

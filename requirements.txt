@@ -1,0 +1,28 @@
+# RETECO — SemEval-2027 Task 1, Track 1 (CUET_AL_Masaar)
+# Phase 0-1 only. Dense/rerank dependencies (torch, sentence-transformers, faiss)
+# are added at Phase 4, not before — see CLAUDE.md §9.
+#
+# Versions are pinned (CLAUDE.md §11). Resolution verified 2026-09-16 on Python 3.11.
+
+# --- Scoring: the official metric, nDCG@10 via pytrec_eval (CLAUDE.md §4) -------------
+# pytrec-eval-terrier is the maintained fork; it imports as `pytrec_eval`, same API.
+# The unmaintained `pytrec_eval` (last release 0.5) does not build on modern Python.
+pytrec-eval-terrier==0.5.10
+
+# --- BM25 baseline: the organizers use gensim's LuceneBM25Model, k1=0.9 b=0.4 ---------
+gensim==4.4.0
+
+# --- Numerics / data ------------------------------------------------------------------
+numpy==2.3.5
+scipy==1.16.3
+pandas==2.3.3
+
+# --- Ergonomics -----------------------------------------------------------------------
+tqdm==4.67.1
+PyYAML==6.0.3
+
+# --- Kaggle GPU control path (kaggle/*.py). Local machine only. -----------------------
+kaggle==2.2.4
+
+# --- Tests ----------------------------------------------------------------------------
+pytest==8.4.2
