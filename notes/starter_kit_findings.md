@@ -100,8 +100,17 @@ From `docs/sample_data/manifest.json` (pilot package dated 2026-07-29):
 | RECOR | `RECOR-Benchmark/RECOR` | `d9faa639019dcfa1a1fea2aece55ebcba3083c00` | arXiv 2601.05461 |
 
 Note the HF org for TEMPO is `tempo26`, while the GitHub repo in CLAUDE.md §4 is `tempo-bench/Tempo`.
-Both arXiv ids are **[UNVERIFIED]** — taken from the manifest, not yet fetched (arXiv is not reachable
-from this container). Check before citing in the paper.
+
+**Both arXiv ids VERIFIED 16 Sept 2026** (read directly via alphaXiv; the earlier [UNVERIFIED] mark is
+cleared):
+- 2601.09523v1 — *TEMPO: A Realistic Multi-Domain Benchmark for Temporal Reasoning-Intensive
+  Retrieval*, Abdallah, Ali, Abdul-Mageed, Jatowt (Innsbruck + UBC), 14 Jan 2026.
+- 2601.05461v1 — *RECOR: Reasoning-focused Multi-turn Conversational Retrieval Benchmark*, Ali,
+  Abdallah, Agarwal, Patel, Jatowt (Innsbruck + Oracle AI), 9 Jan 2026.
+
+Notes in `notes/lit/tempo.md` and `notes/lit/recor.md`. RECOR independently confirms the per-domain
+macro averaging: "an average within each domain, then macro-average across all 11 domains to ensure
+equal weight regardless of domain size."
 
 `download_raw.py` pulls those two raw releases; `build_release.py` then constructs `reteco_data/`.
 For Phase 1 we want the *already built* release from `DataScience-UIBK/RETECO-SemEval2027`, not a rebuild.

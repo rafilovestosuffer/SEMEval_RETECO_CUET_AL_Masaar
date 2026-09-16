@@ -45,6 +45,9 @@ matching it proves nothing, since a broken pipeline returns 0.0000 too.)
 | 2026-09-16 | **Official metric is macro-averaged over the 13 domains, not over topics** | `BASELINE_RESULTS.md` prose + `official_baseline.py` aggregation; the 13 per-domain 1a-train values average to 0.08785 → published 0.0879. CLAUDE.md §4/§6 corrected |
 | 2026-09-16 | The official stack (pyserini Lucene + gensim `LuceneBM25Model` + `pytrec_eval`) runs end to end under JDK 21 | `official_baseline.py` exit 0 on a synthetic fixture; its runs pass the organizers' `format_checker.py` (800 lines, 8 topics, 0 errors) |
 | 2026-09-16 | `eval/gate.py` reads real `official_baseline.py` output and returns the right verdict | 48 tests pass; correct FAIL on the fixture |
+| 2026-09-16 | **Phase 0 literature done** — TEMPO, RECOR, ReasonIR, DIVER read directly; arXiv ids for TEMPO (2601.09523) and RECOR (2601.05461) verified | `notes/lit/*.md` + `SUMMARY.md` |
+| 2026-09-16 | H1 confirmed from the source paper: dense/reasoning retrieval is ~3× BM25 on TEMPO (10.8 → 22–32 macro nDCG@10) | TEMPO Table 3, `notes/lit/tempo.md` |
+| 2026-09-16 | H2 is **untested in the literature** — TEMPO compares 1b query *constructions*, never fuses step rankings into 1a | TEMPO Fig 6, `notes/lit/SUMMARY.md` |
 
 Explicitly **not** verified: any nDCG value on real data; the Kaggle GPU path (the smoke kernel
 has still not been run); whether the Kaggle image ships a usable JDK; the internal layout of the
