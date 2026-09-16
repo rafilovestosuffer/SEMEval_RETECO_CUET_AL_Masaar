@@ -13,6 +13,11 @@ Last updated: 2026-09-16
 **Phase 1 — wiring (CPU, IOTA only), built but not yet run.** The gate is coded and the
 toolchain is proven; what is missing is one Kaggle run against the real IOTA domain.
 
+Everything that does not need the corpus has been built ahead: the `reteco/` core modules, the
+Phase 3 validation harness, and the Phase 8 submission path. **All of it is tested in isolation
+and none of it is gate-passed** — see *Built but unverified* below. Do not mistake one for the
+other.
+
 ## Last verified result
 
 **No nDCG number exists yet.** `results/ledger.csv` still contains only its header row. The
@@ -49,9 +54,30 @@ matching it proves nothing, since a broken pipeline returns 0.0000 too.)
 | 2026-09-16 | H1 confirmed from the source paper: dense/reasoning retrieval is ~3× BM25 on TEMPO (10.8 → 22–32 macro nDCG@10) | TEMPO Table 3, `notes/lit/tempo.md` |
 | 2026-09-16 | H2 is **untested in the literature** — TEMPO compares 1b query *constructions*, never fuses step rankings into 1a | TEMPO Fig 6, `notes/lit/SUMMARY.md` |
 
+| 2026-09-16 | BRIGHT read directly (2407.12883v4, ICLR 2025); the 12.2-point CoT figure confirmed at source | `notes/lit/bright.md` |
+| 2026-09-16 | **Correction to our own Phase 0 output**: MS MARCO cross-encoders *hurt* on reasoning retrieval (BM25 14.3 → 8.3 at k=100). `SUMMARY.md` had ranked this +4–7 at #4; now demoted to last and flagged presumed-harmful | BRIGHT Table 3 |
+| 2026-09-16 | Core modules + Phase 3 harness + submission path built and unit-tested offline (120 tests) | this commit |
+| 2026-09-16 | `submit/make_runs.py` runs end to end on the fixture and its output passes the organizers' real `format_checker.py`; our fallback checker agrees with it exactly | 2400 lines, 8 topics, 0 errors, both checkers |
+
 Explicitly **not** verified: any nDCG value on real data; the Kaggle GPU path (the smoke kernel
 has still not been run); whether the Kaggle image ships a usable JDK; the internal layout of the
 HF dataset repo. The last two are what the Phase 1 kernel's Stage A probes.
+
+## Built but unverified against real data
+
+Tested in isolation on a synthetic fixture. **No gate below is passed** — each needs the corpus.
+
+| Module | What it does | What would falsify it |
+|---|---|---|
+| `reteco/data.py` | release-schema loaders, `restrict_to_corpus`, the 1b query template | real files whose field names differ from the starter kit's |
+| `reteco/runs.py` | TREC read/write, corpus-order tie-break | a divergence from `official_baseline.py` on tied scores |
+| `reteco/fusion.py` | RRF, weighted/max/sum, min-max interpolation | nothing — pure arithmetic; the *choice* among them is H2 |
+| `eval/score.py` | two-level macro over `pytrec_eval` | disagreement with the organizers' own numbers in Phase 1/2 |
+| `eval/bootstrap.py`, `eval/cv.py` | domain-stratified folds, CIs, paired test | fold counts on real per-domain query counts |
+| `submit/make_runs.py`, `check_format.py` | end-to-end runs + validation | real test-split file naming |
+
+The retriever inside `make_runs.py` is a deliberate token-overlap placeholder, **not a
+baseline**. Phase 4 replaces it.
 
 ---
 

@@ -24,19 +24,23 @@ estimate; nothing here is a measured result of ours, and no number below belongs
 
 ## Ranked candidates
 
+> **Corrected 16 Sept 2026 after reading BRIGHT directly.** The previous version of this table ranked
+> "cross-encoder rerank of top-100" at #4 with an expected **+4 to +7** and named bge-reranker-v2-m3.
+> That was wrong, and wrong in the dangerous direction — see row 6 and `bright.md` §4.
+
 | # | Technique | Expected gain | T4 cost | Risk | Evidence |
 |---|---|---|---|---|---|
 | 1 | **DIVER-Retriever-4B as first stage** | **+15–20** over BM25 | ~6–10 GPU-h to embed 1.65M docs, once | Low | TEMPO 32.0 vs BM25 10.8; BRIGHT 28.9–31.9 |
 | 2 | **Hybrid `0.5·dense + 0.5·BM25`**, min-max normalised | **+3** | ~0 (scores already computed) | Very low | DIVER 33.9→37.2; ReasonIR 29.9→32.0 |
 | 3 | **Step fusion for 1a (H2)** | unknown — **our contribution** | ~0 extra retrieval (1b runs anyway) | Medium | *Untested in the literature* |
-| 4 | **Cross-encoder rerank of top-100** | +4–7 | ~2–4 GPU-h per full pass | Medium | ReasonIR 29.9→36.9 (but with a 32B reranker) |
-| 5 | **Temporal query rewriting (H3)** | +8 on reasoning retrievers, **−6 on BM25** | LLM call per query; cache everything | High (cost + hurts the sparse arm) | TEMPO Table 5 / Fig 8 |
+| 4 | **Smaller open embedders (BGE/SBERT/Inst-L)** | +11–14 over BM25 | ~1–2 GPU-h, <1B params | Very low | TEMPO Table 3 (22.0/24.9/24.8) |
+| 5 | **Temporal query rewriting (H3)** | +8 to +13.7 on reasoning retrievers; **sign on BM25 is disputed** | LLM call per query; cache everything | High (cost, and the sparse-arm effect is unresolved) | TEMPO Table 5/Fig 8 vs BRIGHT Table 38 — they disagree |
 | 6 | **Document cleaning + rechunk (DChunk)** | +0.5 dense, ~0 BM25 | one-off CPU | Low | DIVER Table 5 |
-| 7 | **Smaller open embedders (BGE/SBERT/Inst-L)** | +11–14 over BM25 | ~1–2 GPU-h, <1B params | Very low | TEMPO Table 3 (22.0/24.9/24.8) |
+| 7 | **Cross-encoder rerank (MS MARCO lineage)** | **NEGATIVE at k=100**; unclear at k=10 | ~2–4 GPU-h per full pass | **High — presumed harmful** | BRIGHT Table 3: MiniLM takes BM25 14.3 → 13.1 (k=10) → **8.3** (k=100) |
 
 **Not recommended:** ReasonIR-8B (16 GB fp16, does not fit, and DIVER-4B beats it at half the size);
 `Diver-GroupRank-32B` and Qwen2.5-32B rerankers (far out of budget); Step-Only retrieval (a known
-negative result — see below).
+negative result — see below); **any MS MARCO-trained cross-encoder at large k** (row 7).
 
 ---
 
@@ -54,13 +58,21 @@ fusion of *Query+Step* rankings (RRF, weighted, max/sum) plus the whole-query li
 Nobody has published this; it is cheap because 1b retrieval runs anyway; and it is the finding the paper
 should be built around.
 
-**Phase 7 — reranking.** A small cross-encoder over top-100 (bge-reranker-v2-m3 class, <1B). The
-published +7 comes from a 32B reranker, so budget +3–4 realistically. Measure recall@100 first — it is the
-ceiling, and if it is already low the reranker cannot help.
+**Phase 7 — reranking, now the most suspect item on the list.** BRIGHT Table 3 shows an MS
+MARCO-trained cross-encoder taking BM25 from 14.3 to **8.3** at k=100 — it nearly halves the score, and
+gets worse the more documents you rerank. bge-reranker-v2-m3 is that lineage. The published +7 comes
+from *LLM* rerankers (GPT-4, Qwen2.5-32B), which we cannot afford.
+So: **measure recall@100 first** (it is the ceiling — if it is low, no reranker can help), then test a
+cross-encoder at **k=10 before k=100**, and treat any MS MARCO-trained model as presumed harmful until
+our own numbers say otherwise. Be willing to conclude H4 is negative under our compute budget; that is a
+publishable finding, not a failure.
 
-**Phase 6 — rewriting, last and cost-gated.** Biggest single published gain (+8 to +13.7) but it is the most
-expensive and the most dangerous: it *degrades* BM25 badly. If used, apply the rewrite to the dense arm
-only and keep the original query for the sparse arm. Cache every generation to disk.
+**Phase 6 — rewriting, last and cost-gated.** Biggest single published gain (+8 to +13.7 on
+reasoning-aware retrievers) but the most expensive, and the sparse-arm effect is genuinely **unresolved**:
+TEMPO shows BM25 collapsing 10.8→4.3–6.2 under reasoning augmentation, BRIGHT shows BM25 *improving*
+14.5→27.0 under the same idea and benefiting more than any dense model. TEMPO is our actual data so the
+prior leans its way, but this must be measured per-arm, not assumed. Run the ablation with the rewrite
+applied to (a) dense only, (b) both arms. Cache every generation to disk.
 
 ---
 
@@ -69,8 +81,10 @@ only and keep the original query for the sparse arm. Cache every generation to d
 - **Optimize per-domain.** The metric is an equal-weight macro over 13 domains, so Iota's ~10 queries
   weigh the same as History's 801. Per-domain nDCG on small domains is high-variance — Phase 3's folds
   must be stratified by domain with per-domain CIs.
-- **Never rewrite the BM25 arm.** TEMPO Fig 8: BM25 falls 10.8 → 4.3–6.2 under LLM reasoning
-  augmentation.
+- **The BM25-arm rewriting question is open — measure it, do not assume it.** TEMPO Fig 8 has BM25
+  falling 10.8 → 4.3–6.2 under LLM reasoning augmentation; BRIGHT Table 38 has BM25 *rising*
+  14.5 → 27.0 under the same technique and gaining more than any dense model. An earlier version of
+  this file stated "never rewrite the BM25 arm" as a rule; that was overconfident on one paper.
 - **Do not build a time-first system.** Stripping temporal signals costs only 2.2 points; Temporal-Only
   queries collapse DiVeR from 32.0 to 17.7. Temporal reasoning needs topical grounding.
 - **Check the encoder's context limit before generating long rewrites.** GRIT-7B was trained with a
