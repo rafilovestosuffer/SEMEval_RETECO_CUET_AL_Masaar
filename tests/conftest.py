@@ -11,6 +11,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-for entry in (REPO_ROOT, REPO_ROOT / "kaggle"):
+for entry in (REPO_ROOT, REPO_ROOT / "kaggle", REPO_ROOT / "eval"):
     if str(entry) not in sys.path:
         sys.path.insert(0, str(entry))

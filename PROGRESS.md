@@ -10,24 +10,28 @@ Last updated: 2026-09-16
 
 ## Current phase
 
-**Phase 0 — repo bootstrap.** No retrieval code exists yet. No data has been downloaded.
-The repo skeleton (§10), this file, the ledger and the Kaggle GPU control path are in place;
-nothing beyond that has been built.
+**Phase 1 — wiring (CPU, IOTA only), built but not yet run.** The gate is coded and the
+toolchain is proven; what is missing is one Kaggle run against the real IOTA domain.
 
 ## Last verified result
 
-**None.** `results/ledger.csv` contains only its header row. The official BM25 baseline numbers
-quoted in `CLAUDE.md` §4 are the *organizers'* published figures — they have not yet been
-reproduced by this repo, and must not be cited as ours until Phase 1's gate passes.
+**No nDCG number exists yet.** `results/ledger.csv` still contains only its header row. The
+BM25 figures in `CLAUDE.md` §4 and in `eval/gate.py` are the *organizers'* published values —
+they have not been reproduced by this repo and must not be cited as ours until the gate passes.
 
 ## Next step (the ONE step)
 
-**Phase 1 — wiring, CPU, IOTA only.** Download `track1_tempo/iota/*`, run the official BM25
-baseline (gensim `LuceneBM25Model`, k1=0.9, b=0.4) on train and dev, and match
-`BASELINE_RESULTS.md` for IOTA to 4 decimals.
+**Run the Phase 1 kernel on Kaggle** (CPU, internet on, zero GPU quota):
 
-Blocked on: Rafi downloading the IOTA domain locally. Claude Code web sessions cannot reach
-`huggingface.co` or the RETECO site (see *Environment notes* below), so the download is a local step.
+```bash
+python kaggle/push_kernel.py kaggle/kernels/phase1_bm25_iota
+python kaggle/pull_output.py --kernel reteco-phase1-bm25-iota
+```
+
+It probes for a JDK and prints the real HF repo layout before downloading anything, so the run
+is informative even if it stops early. Paste the log back. Gate = IOTA 1a train 0.0199,
+1a dev 0.2083, 1b dev 0.3289, each to 4 dp. (1b train is published as 0.0000 and abstains —
+matching it proves nothing, since a broken pipeline returns 0.0000 too.)
 
 ---
 
@@ -35,11 +39,16 @@ Blocked on: Rafi downloading the IOTA domain locally. Claude Code web sessions c
 
 | Date | What | Evidence |
 |---|---|---|
-| 2026-09-16 | Repo skeleton, `CLAUDE.md`, ledger, Kaggle control scripts committed | this commit |
-| 2026-09-16 | Claude Code web container cannot reach Kaggle / HuggingFace / RETECO site | proxy returns 403 CONNECT for all three; PyPI + GitHub reachable |
+| 2026-09-16 | Repo skeleton, `CLAUDE.md`, ledger, Kaggle control scripts committed | commit `71c9720` |
+| 2026-09-16 | Kaggle / HuggingFace / RETECO docs site all unreachable from a Claude Code web session | 403 CONNECT; HF blocked even over the git proxy (`git ls-remote` on `tempo26/Tempo`) |
+| 2026-09-16 | The RETECO **GitHub** repo *is* reachable via the git proxy | cloned at `23093c3`; starter kit read directly |
+| 2026-09-16 | **Official metric is macro-averaged over the 13 domains, not over topics** | `BASELINE_RESULTS.md` prose + `official_baseline.py` aggregation; the 13 per-domain 1a-train values average to 0.08785 → published 0.0879. CLAUDE.md §4/§6 corrected |
+| 2026-09-16 | The official stack (pyserini Lucene + gensim `LuceneBM25Model` + `pytrec_eval`) runs end to end under JDK 21 | `official_baseline.py` exit 0 on a synthetic fixture; its runs pass the organizers' `format_checker.py` (800 lines, 8 topics, 0 errors) |
+| 2026-09-16 | `eval/gate.py` reads real `official_baseline.py` output and returns the right verdict | 48 tests pass; correct FAIL on the fixture |
 
-Nothing else. Explicitly *not* verified: any nDCG number, any data statistic, the Kaggle GPU
-path end-to-end (the smoke kernel has not been run yet).
+Explicitly **not** verified: any nDCG value on real data; the Kaggle GPU path (the smoke kernel
+has still not been run); whether the Kaggle image ships a usable JDK; the internal layout of the
+HF dataset repo. The last two are what the Phase 1 kernel's Stage A probes.
 
 ---
 
@@ -49,13 +58,16 @@ path end-to-end (the smoke kernel has not been run yet).
 
 1. Do the hidden **test queries come from the same 13 domains / corpora** as train+dev, or are there
    unseen domains? This decides whether per-domain tuning is safe at all.
-2. **Averaging level of the official metric**: is macro nDCG@10 averaged over all topics globally, or
-   per-domain and then macro-averaged across domains? History alone has 801 of the queries, so the two
-   differ a lot and they change what we optimize. (§6 — check `scorer.py` in the starter kit first.)
-3. **Team size limits, daily submission caps, hardware-reporting requirements, late policy** — not yet
+2. **Team size limits, daily submission caps, hardware-reporting requirements, late policy** — not yet
    announced; re-check when the evaluation platform opens.
-4. **Paper dates** (Feb 2027 system papers / Mar notification / Apr camera-ready) are marked tentative
+3. **Paper dates** (Feb 2027 system papers / Mar notification / Apr camera-ready) are marked tentative
    on the official site.
+
+**Resolved 2026-09-16 — averaging level.** Was: "is macro nDCG@10 over all topics globally, or
+per-domain then macro?" Answer: **per-domain, then equal-weight macro over the 13 domains**
+(evidence in the table above and in `notes/starter_kit_findings.md` §1). No need to ask.
+Consequence: History's 801 queries are worth 1/13, exactly like IOTA's ~10 — optimize per-domain,
+and expect high variance on the small domains.
 
 ### Operational
 
@@ -84,7 +96,8 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
 
 ## Phase gates
 
-- [ ] **Phase 1** — IOTA BM25 matches `BASELINE_RESULTS.md` to 4 dp
+- [ ] **Phase 1** — IOTA BM25 matches `BASELINE_RESULTS.md` to 4 dp *(gate coded in `eval/gate.py`;
+      kernel built and toolchain proven — awaiting one Kaggle run on real data)*
 - [ ] **Phase 2** — full Track 1 BM25 reproduction + `notes/data_audit.md`
 - [ ] **Phase 3** — CV harness reproduces BM25, fold variance reported
 - [ ] **Phase 4** — first-stage config picked on train CV only

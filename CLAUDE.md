@@ -89,7 +89,12 @@ Splits (gold labels public for both):
 - train+dev = the entire public TEMPO/RECOR benchmarks → the SemEval test set is new and unseen.
   **[VERIFY]** whether test queries come from the same 13 domains/corpora. Ask on the mailing list if not stated.
 
-Metric: **nDCG@10**, `pytrec_eval` `ndcg_cut_10`, macro-averaged over topics. `scorer.py` adds temporal precision/coverage diagnostics (not ranking).
+Metric: **nDCG@10**, `pytrec_eval` `ndcg_cut_10`, **macro-averaged over the 13 domains** — two levels: within a domain
+`pytrec_eval` averages over topics, then the domains are averaged with *equal weight*. Verified 16 Sept 2026 against the
+starter kit at commit `23093c3`: `BASELINE_RESULTS.md` states "Macro-averaged over domains, as both papers do", and the
+13 published per-domain 1a-train values average to 0.08785 → the published 0.0879. So a domain's query count does not
+affect its weight (see §6). The pure-Python `scorer.py` is the *approximate* zero-install path and also adds temporal
+precision/coverage diagnostics (not ranking); the official number comes from `official_baseline.py` + `pytrec_eval`.
 
 Run format (TREC, 6 cols): `topic Q0 doc_id rank score tag`. Topic ids: 1a = `id` (e.g. `124973_5`); 1b = `step_id` (e.g. `124973_5_step1`).
 Always run `format_checker.py` with `--qrels` and `--corpus` before scoring.
@@ -148,8 +153,11 @@ Compute planning rules:
 - Estimate GPU-hours before proposing any run (docs × tokens × throughput). Say the estimate out loud.
 - Embed corpora once per model, store fp16 per domain, reuse forever. 1.65M docs × 1024-d fp16 ≈ 3.3 GB.
 - Truncate documents deliberately (check length distribution first); consider passage chunking only if data shows long docs hurt.
-- Largest domain is History (801 queries, 356,493 docs) — it dominates query count but nDCG is macro over topics; check whether
-  the official average is over topics globally or per-domain then macro **[VERIFY in scorer.py]**. This changes what to optimize.
+- Largest domain is History (801 queries, 356,493 docs) — it dominates query count but **not** the score. Resolved
+  16 Sept 2026 (see §4): the official average is per-domain first, then equal-weight macro across the 13 domains.
+  So History is worth exactly 1/13, the same as IOTA's ~10 queries. Consequences: optimize and report per-domain,
+  never globally; a gain on a small domain is worth as much as the same gain on a large one; and per-domain nDCG on
+  the tiny domains is high-variance, so Phase 3's folds must be stratified by domain and carry per-domain CIs.
 
 ---
 
