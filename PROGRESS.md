@@ -10,6 +10,9 @@ Last updated: 2026-09-22
 
 ## Current phase
 
+**Phase 4 — first stage COMPLETE 2026-09-23. H1 confirmed on our own data.**
+Dense retrieval beats BM25 by 2.7x, and the corpus is embedded and reusable.
+
 **Phase 3 — PASSED 2026-09-22.** The validation harness reproduces BM25 on real data, reports
 fold variance and bootstrap CIs under both aggregations, and its paired test is calibrated
 (null straddles zero across three seeds; detects a gain from improving 0.5% of queries).
@@ -40,22 +43,53 @@ Every per-domain cell matched too (52/52 counted). Verified by the kernel and in
 `eval/gate.py --all` (exit 0). The left column reproduces the organizers' table; **the right
 column is what ranks us** (§4) and is what the ledger records as `macro_ndcg10`.
 
-## The number that should drive Phase 4
+## Phase 4 result — H1 answered
 
-**BM25 recall@100 on 1a train is 0.2681, and 56.6% of queries have ZERO gold in the top 100.**
-77.7% score nDCG@10 = 0.0 outright. Two consequences, both hard:
+`AQ-MedAI/Diver-Retriever-0.6B` against the organizers' BM25, train split, both scored by our
+own harness (ledger `phase4c_dense_search`, commit `28ba526`):
 
-- **A reranker over a BM25 top-100 cannot exceed ~0.27**, and for more than half of all queries
-  it can achieve *nothing*, because there is no gold document in the pool to promote. This is our
-  own measurement of the ceiling the deep-research pass warned about, and it independently
-  supports the "do not spend GPU on reranking" conclusion (`reports/Temporal retrieval research
-  gaps.md` §4).
-- **First-stage recall is the whole game.** Per domain the ceiling is worst exactly where it costs
-  most: History is 46% of the query macro and has recall@100 of **0.199**. Politics (0.581) and
-  IOTA (0.083) bracket the range.
+| | dense | BM25 | paired delta |
+|---|---:|---:|---|
+| 1a nDCG@10 (query macro) | **0.2567** | 0.0944 | **+0.1622** [+0.1472, +0.1774] SIGNIFICANT |
+| 1b nDCG@10 (official agg.) | **0.2792** | 0.0919 | **+0.1874** [+0.1711, +0.2040] SIGNIFICANT |
+| 1a recall@100 | **0.648** | 0.268 | — |
 
-| domain | recall@100 | | domain | recall@100 |
-|---|---:|---|---|---:|
+Domain macros are 0.2201 (1a) and 0.2544 (1b), for comparison with the organizers' table.
+
+**Three consequences that change the plan:**
+
+1. **Reranking is back on the table.** Phase 3 measured BM25 recall@100 at 0.268 and 56.6% of
+   queries with no gold in the top 100, which capped any reranker near 0.27 and was the main
+   evidence for the research pass's "do not rerank" conclusion. Dense recall@100 is **0.648** —
+   two and a half times the ceiling that argument rested on. The argument does not survive its
+   premise; Phase 7 should be re-decided on this number, not on the BM25 one.
+2. **Fusing BM25 is not worth it, now measured rather than predicted.** Top-100 overlap between
+   the two arms is **0.060** — they agree on almost nothing — but the disagreement is nearly all
+   one-directional: dense finds **1,706** judged documents BM25 misses, BM25 finds **104** dense
+   misses. Union recall@100 is 0.675 against dense's 0.648, so a perfect candidate-pool merge
+   buys at most **+0.027**, and score fusion would dilute a 2.7x-stronger arm to get it. Low
+   overlap was the usual argument *for* fusion; the marginal-gold columns show why it is not
+   sufficient on its own.
+3. **The recall ceiling fear was unfounded.** The research pass put the realistic recall@100
+   ceiling near 0.45, extrapolated from BRIGHT tables on corpora 4-200x smaller. We measure 0.648
+   on 1.65M documents with a 0.6B model.
+
+Per-domain, dense wins everywhere. The largest gains are on the domains BM25 handled worst —
+history 0.0691 -> 0.2889 (and it is 46% of the metric), economics 0.0382 -> 0.1977, workplace
+0.0777 -> 0.2920.
+
+## Next step (the ONE step)
+
+**Phase 5 — step fusion (H2), the contribution.** Phase 4c produced both the 1a and 1b runs
+needed, `reteco/stepfuse.py` is built and tested, and the design is settled by research:
+augment never replace, sum over RRF, and **sweep the parent-versus-steps weight** — the one knob
+absent from every paper reviewed. Endpoints are interpretable: a large weight reproduces the 1a
+baseline exactly, zero is TEMPO's known-bad Step-Only.
+
+Run it as a train-only CV sweep with the paired bootstrap deciding, then re-open Phase 7 with
+the corrected recall ceiling.
+
+---|---:|---|---|---:|
 | politics | 0.581 | | travel | 0.209 |
 | cardano | 0.463 | | **history** | **0.199** |
 | hsm | 0.452 | | economics | 0.194 |
@@ -252,7 +286,8 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
       commit `6e2e1b7`; 52/52 per-domain cells and all four macros match to 4 dp)*
 - [x] **Phase 3** — CV harness reproduces BM25, fold variance reported *(PASSED 2026-09-22; both
       aggregations reported, paired test calibrated against a shuffle null)*
-- [ ] **Phase 4** — first-stage config picked on train CV only
+- [x] **Phase 4** — first-stage config picked on train CV only *(2026-09-23: Diver-Retriever-0.6B,
+      1a 0.2567 vs BM25 0.0944, paired CI excludes zero; BM25 fusion rejected on measured evidence)*
 - [ ] **Phase 5** — H2 (step fusion) answered with CI
 - [ ] **Phase 6** — query rewriting gain > CI width, cost acceptable
 - [ ] **Phase 7** — H4 (reranking) answered, GPU-hours logged

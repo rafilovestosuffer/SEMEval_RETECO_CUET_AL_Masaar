@@ -87,22 +87,25 @@ def find_embeddings() -> Path:
     sources = sorted(KAGGLE_INPUT.iterdir())
     print(f"  /kaggle/input has {len(sources)} source(s): "
           f"{[s.name for s in sources] or 'EMPTY'}")
-    for source in sources:
-        if not source.is_dir():
-            continue
-        entries = sorted(p.name for p in source.iterdir())[:12]
-        print(f"    {source.name}/ -> {entries}")
-        for base in (source / "embeddings", source):
-            if base.is_dir() and any(base.glob("*/doc_index.json")):
-                n = len(list(base.glob("*/doc_index.json")))
-                print(f"  found {n} domain index files at {base}")
-                return base
 
-    die(f"no */doc_index.json under any source in {KAGGLE_INPUT} (listing above). "
-        f"If the listing is EMPTY the phase4b output was not published yet — wait for it "
-        f"to appear on the kernel's Output tab and re-push. If sources are present but "
-        f"the layout differs, adjust the search path here.")
-    raise AssertionError("unreachable")
+    # Search recursively rather than assuming a mount layout. Run 2 showed kernel output
+    # arriving at /kaggle/input/notebooks/<username>/<slug>/embeddings/<domain>/ — two
+    # levels deeper than a dataset mount, and not documented anywhere I could find.
+    # Globbing for the marker file makes this independent of how Kaggle nests it.
+    found = sorted(KAGGLE_INPUT.glob("**/doc_index.json"))
+    if not found:
+        die(f"no doc_index.json anywhere under {KAGGLE_INPUT} (listing above). "
+            f"If the listing is EMPTY the phase4b output was not published yet — wait for "
+            f"it to appear on the kernel's Output tab and re-push.")
+
+    # Each match is <base>/<domain>/doc_index.json, so the base is two levels up.
+    bases = {p.parent.parent for p in found}
+    if len(bases) > 1:
+        print(f"  WARNING: index files under {len(bases)} different roots: "
+              f"{sorted(str(b) for b in bases)}; using the one with the most domains")
+    base = max(bases, key=lambda b: len(list(b.glob("*/doc_index.json"))))
+    print(f"  found {len(list(base.glob('*/doc_index.json')))} domain index files at {base}")
+    return base
 
 
 def read_jsonl(path: Path):
