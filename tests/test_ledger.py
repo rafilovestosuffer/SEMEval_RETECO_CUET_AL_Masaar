@@ -45,9 +45,25 @@ def test_every_row_has_the_full_column_count() -> None:
         assert len(row) == len(EXPECTED_COLUMNS), f"ledger row {number} has {len(row)} fields"
 
 
-def test_no_result_is_recorded_before_phase_1_passes() -> None:
-    """Phase 0 has produced no measurement. A number here before Phase 1's gate is fabricated (§5.6)."""
-    assert len(read_rows()) == 1, (
-        "the ledger has gained rows — if that was a real logged run, update this test "
-        "and PROGRESS.md together"
-    )
+def test_every_row_names_the_commit_that_produced_it() -> None:
+    """§5.7: a run is only reproducible if the ledger says which code produced it.
+
+    Replaced the pre-Phase-1 "the ledger must be empty" guard on 2026-09-22, when the
+    Phase 1 gate passed on IOTA and the first real rows were logged. That guard's job
+    was to catch a number invented before any measurement existed; from here on the
+    equivalent protection is that every number is traceable to a commit.
+    """
+    for number, row in enumerate(read_rows()[1:], start=2):
+        entry = dict(zip(EXPECTED_COLUMNS, row))
+        assert entry["git_commit"].strip(), f"ledger row {number} has no git_commit"
+        assert entry["macro_ndcg10"].strip(), f"ledger row {number} has no score"
+
+
+def test_every_dev_row_states_why_dev_was_touched() -> None:
+    """§5.2: dev is sacred — every dev evaluation is logged *with a reason*."""
+    for number, row in enumerate(read_rows()[1:], start=2):
+        entry = dict(zip(EXPECTED_COLUMNS, row))
+        if entry["split"].strip() == "dev":
+            assert entry["dev_eval_reason"].strip(), (
+                f"ledger row {number} evaluates on dev without a stated reason"
+            )

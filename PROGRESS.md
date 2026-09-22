@@ -4,39 +4,49 @@
 > Update it at the end of every session: what changed, what is *verified*, what is next.
 > A number appears here only if code in this repo produced it and it is in `results/ledger.csv` (§5.6).
 
-Last updated: 2026-09-16
+Last updated: 2026-09-22
 
 ---
 
 ## Current phase
 
-**Phase 1 — wiring (CPU, IOTA only), built but not yet run.** The gate is coded and the
-toolchain is proven; what is missing is one Kaggle run against the real IOTA domain.
+**Phase 1 — PASSED 2026-09-22.** The IOTA BM25 reproduction matches the organizers' published
+figures to 4 dp on all three load-bearing rows. The toolchain is now proven end to end on real
+data: HF download → starter kit at the pinned commit → `official_baseline.py` → our gate.
 
-Everything that does not need the corpus has been built ahead: the `reteco/` core modules, the
-Phase 3 validation harness, and the Phase 8 submission path. **All of it is tested in isolation
-and none of it is gate-passed** — see *Built but unverified* below. Do not mistake one for the
-other.
+Phase 2 (full Track 1 reproduction + data audit) has not started.
+
+The `reteco/` core modules, the Phase 3 harness and the Phase 8 submission path remain **tested
+in isolation only** — see *Built but unverified* below. Phase 1 validated the organizers' code
+path, not ours; the one piece of ours it did corroborate is `restrict_to_corpus` (see below).
 
 ## Last verified result
 
-**No nDCG number exists yet.** `results/ledger.csv` still contains only its header row. The
-BM25 figures in `CLAUDE.md` §4 and in `eval/gate.py` are the *organizers'* published values —
-they have not been reproduced by this repo and must not be cited as ours until the gate passes.
+**Phase 1 gate, IOTA, commit `fa495d3`** — ledger rows `phase1_bm25_iota_r2`:
+
+| key | published | observed | topics | counts |
+|---|---|---|---|---|
+| 1a train | 0.0199 | **0.0199** | 7 | yes |
+| 1a dev | 0.2083 | **0.2083** | 3 | yes |
+| 1b dev | 0.3289 | **0.3289** | 8 | yes |
+| 1b train | 0.0000 | 0.0000 | 16 | abstains |
+
+Verified twice: by the kernel and independently by `eval/gate.py` (exit 0). 22.4 s on a Kaggle
+CPU kernel, **zero GPU quota**. These are single-domain IOTA numbers, not the 13-domain macro,
+and 1a dev is 3 topics — wiring evidence, not performance evidence. Do not quote them as a
+system result.
 
 ## Next step (the ONE step)
 
-**Run the Phase 1 kernel on Kaggle** (CPU, internet on, zero GPU quota):
+**Phase 2 — full Track 1 BM25 reproduction + data audit.** Same kernel shape, all 13 domains
+instead of one; gate is the published macro (1a train 0.0879, 1a dev 0.0967, 1b train 0.0852,
+1b dev 0.1063) and `notes/data_audit.md`.
 
-```bash
-python kaggle/push_kernel.py kaggle/kernels/phase1_bm25_iota
-python kaggle/pull_output.py --kernel reteco-phase1-bm25-iota
-```
-
-It probes for a JDK and prints the real HF repo layout before downloading anything, so the run
-is informative even if it stops early. Paste the log back. Gate = IOTA 1a train 0.0199,
-1a dev 0.2083, 1b dev 0.3289, each to 4 dp. (1b train is published as 0.0000 and abstains —
-matching it proves nothing, since a broken pipeline returns 0.0000 too.)
+Estimate before proposing the run: IOTA is 10,372 docs and indexed in ~22 s, so 1.65 M docs is
+roughly 1 h of CPU indexing, plus download. Still zero GPU. The audit questions are already
+listed in `notes/lit/SUMMARY.md` — above all **whether `guidance_*.jsonl` carries TEMPO's
+reasoning-class labels (TCP, HAC, CAU…)**, which would make a per-reasoning-class breakdown a
+stronger paper axis than per-domain, and answers H6.
 
 ---
 
@@ -58,10 +68,15 @@ matching it proves nothing, since a broken pipeline returns 0.0000 too.)
 | 2026-09-16 | **Correction to our own Phase 0 output**: MS MARCO cross-encoders *hurt* on reasoning retrieval (BM25 14.3 → 8.3 at k=100). `SUMMARY.md` had ranked this +4–7 at #4; now demoted to last and flagged presumed-harmful | BRIGHT Table 3 |
 | 2026-09-16 | Core modules + Phase 3 harness + submission path built and unit-tested offline (120 tests) | this commit |
 | 2026-09-16 | `submit/make_runs.py` runs end to end on the fixture and its output passes the organizers' real `format_checker.py`; our fallback checker agrees with it exactly | 2400 lines, 8 topics, 0 errors, both checkers |
+| 2026-09-22 | **Phase 1 gate PASSED on real IOTA data** — 1a train 0.0199, 1a dev 0.2083, 1b dev 0.3289, all to 4 dp | kernel run 2 + `eval/gate.py` exit 0; ledger `phase1_bm25_iota_r2`, commit `fa495d3` |
+| 2026-09-22 | HF dataset layout is exactly `track1_tempo/<domain>/*` as assumed; 201 files (track1 143, track2 55). `split_manifest.json` is **top-level**, not per-domain | kernel Stage A.2 file listing |
+| 2026-09-22 | **Kaggle ships JDK 17; pyserini's Lucene jars need 21** (class file version 65.0 vs 61.0). Kernel now installs and explicitly selects 21 | run 1 `UnsupportedClassVersionError`; fixed in `fa495d3` |
+| 2026-09-22 | IOTA is **7 train + 3 dev** queries (10 total, as §6 said) and 16 train / 8 dev steps | `num_topics` in the baseline output — closes the open question in `notes/lit/SUMMARY.md` |
+| 2026-09-22 | `restrict_to_corpus` semantics corroborated against the organizers' own output: 1a train scores over 7 topics, not 10 | `num_topics=7`; our `reteco/data.py` drops the same topics |
 
-Explicitly **not** verified: any nDCG value on real data; the Kaggle GPU path (the smoke kernel
-has still not been run); whether the Kaggle image ships a usable JDK; the internal layout of the
-HF dataset repo. The last two are what the Phase 1 kernel's Stage A probes.
+Explicitly **not** verified: any nDCG value beyond IOTA; the 13-domain macro; the Kaggle **GPU**
+path (the smoke kernel still has not been run). The JDK question and the HF layout question were
+both settled by Phase 1 — see the table above.
 
 ## Built but unverified against real data
 
@@ -102,7 +117,13 @@ and expect high variance on the small domains.
 
 - Kaggle API key was pasted into a chat transcript on 2026-09-16 and **must be rotated**
   (kaggle.com/settings → Account → API → Expire Token, then Create New Token). No key is stored in
-  this repo and none should ever be.
+  this repo and none should ever be. *Status 2026-09-22: a working key is present in
+  `~/.kaggle/kaggle.json` and authenticates as `rafiurrahman01`, but whether it is the rotated one
+  or still the exposed one is unknown from here — Rafi must confirm.*
+- **`kaggle/pull_output.py` cannot print a kernel log on Windows.** The Kaggle library writes the
+  log with the cp1252 default encoding and IOTA's tqdm bars contain `▉` (U+2589), so the pull dies
+  with `UnicodeEncodeError` and leaves a 0-byte `.log`. Workaround: `export PYTHONUTF8=1` before
+  pulling. Not yet fixed in the script.
 - Semester finals run to 20 Sept 2026 and the NuNO paper is due 30 Sept 2026. RETECO is secondary
   (§2) — do not propose work that assumes full-time availability before October.
 
@@ -125,8 +146,8 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
 
 ## Phase gates
 
-- [ ] **Phase 1** — IOTA BM25 matches `BASELINE_RESULTS.md` to 4 dp *(gate coded in `eval/gate.py`;
-      kernel built and toolchain proven — awaiting one Kaggle run on real data)*
+- [x] **Phase 1** — IOTA BM25 matches `BASELINE_RESULTS.md` to 4 dp *(PASSED 2026-09-22, commit
+      `fa495d3`; verified by the kernel and independently by `eval/gate.py`)*
 - [ ] **Phase 2** — full Track 1 BM25 reproduction + `notes/data_audit.md`
 - [ ] **Phase 3** — CV harness reproduces BM25, fold variance reported
 - [ ] **Phase 4** — first-stage config picked on train CV only
