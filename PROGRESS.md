@@ -69,15 +69,39 @@ rerank — **cannot** be computed from them and remains unmeasured.
 
 ## Next step (the ONE step)
 
-**Phase 4a — a one-hour throughput benchmark on Kaggle, before any full run.**
+**Phase 4b — embed the corpus with Diver-Retriever-0.6B.** Phase 4a settled the cost question
+with a measurement instead of arithmetic, and the answer is that this is comfortable:
 
-The GPU-cost research (`reports/T4 embedding cost reduction.md`, 22 Sept 2026) overturned the estimate
-that made Phase 4 look impossible. The 115–150 GPU-hour figure came from two library defaults, not from
-the hardware: fp32 instead of fp16 (~3x), and padding every batch to `max_length` without length-sorting
-(~3x, since the corpus mean is 158 tokens against a 512 cap). Corrected ladder:
+| | measured |
+|---|---|
+| throughput | **6,134 real tokens/sec = 25 docs/sec** (0.6B, fp16, batch 8, max_len 512) |
+| corpus | 11.8 GPU-hours for 0.26B tokens — **0.39 weeks of quota**, ~1.5 sessions |
+| fp32 -> fp16 | **3.2x** (1,847 -> 5,991 tok/s), VRAM halved |
+| numerics | 0 inf, 0 nan, norms within 5e-4 of 1.0 — the fp16 cast is safe |
+| VRAM | peak **1.74 GB of 15.6** at batch 8; no OOM even at batch 128 |
 
-| config | GPU-hours for the corpus |
-|---|---:|
+Run shape: deduplicate with `reteco.dedup.build_plan` (-29.4%, validated against the audit on
+IOTA), encode unique texts only, write fp16 shards with a `.done` sentinel so a killed session
+resumes, then scatter back to all 1.65M doc ids.
+
+**Stay at 0.6B rather than upgrading.** 1.7B would cost ~33 h — a full week's quota — for +2.1
+BRIGHT, and 4B ~78 h for +6.7. Meanwhile TEMPO Table 5 reports temporal-intent tagging giving
+**+8.0**, more than the entire 0.6B -> 4B gap, at a cost that scales with 1,730 queries rather
+than 1.65M documents. Spending the saved quota on the query side dominates spending it on a
+bigger encoder.
+
+### Three things Phase 4a corrected
+
+- **Length-sorted batching is not a lever.** Measured 5,860 sorted vs 5,991 unsorted — nothing,
+  because sentence-transformers already sorts internally. The earlier claim that padding cost
+  ~3x *at runtime* was wrong. Padding is real in an **estimate** (1.65M x 512 assumes 0.85B
+  tokens against 0.26B actual) but not in **execution**.
+- **`torch.cuda.is_bf16_supported()` returned True on sm75** and must not be trusted; the T4 has
+  no bf16 tensor cores. Set fp16 explicitly and verify `model.dtype`.
+- **Kaggle allocated 2x T4**; only one was used. Whether a two-GPU session bills quota at 1x or
+  2x is still unmeasured, and is worth ~2x wall-clock if it is 1x.
+
+---|---:|
 | fp32, padded to 512, 4B | ~540 |
 | fp16, length-sorted, 4B | ~56 |
 | fp16, length-sorted, **0.6B** | **~7** |

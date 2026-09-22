@@ -165,26 +165,36 @@ Dates:
 
 Compute planning rules:
 - Estimate GPU-hours before proposing any run (docs × tokens × throughput). Say the estimate out loud.
-- **Estimate real tokens, not padded ones, and assume fp16.** Measured 22 Sept 2026: the corpus is
-  1,654,055 docs / **0.81B tokens** untruncated, falling to **~0.26B** after a 512-token cap and removing
-  the 29.4% byte-identical duplicates. A naive estimate that multiplies docs × max_length assumes
-  1.65M × 512 = 0.85B tokens — a **3.2× padding tax** over the 158-token mean — and HuggingFace defaults
-  to fp32, another ~3×. Those two defaults alone turn a ~7 h job into a ~540 h one, which is how this
-  project briefly looked infeasible. The ladder:
+- **MEASURED on a Kaggle T4, 22 Sept 2026** (`kaggle/kernels/phase4a_embed_bench`, ledger
+  `phase4a_embed_bench`). Diver-Retriever-0.6B, fp16, batch 8, max_len 512, 20k stratified documents:
+  **6,134 real tokens/sec = 25 docs/sec**. The corpus is 1,654,055 docs / 0.81B tokens untruncated,
+  falling to ~0.26B after a 512 cap and removing the 29.4% duplicates, so:
 
-  | config | GPU-hours for the corpus |
-  |---|---:|
-  | fp32, padded to 512, 4B | ~540 |
-  | fp16, length-sorted, 4B | ~56 |
-  | fp16, length-sorted, **0.6B** | **~7** |
+  | model | BRIGHT | hours for 0.26B | weeks of quota |
+  |---|---:|---:|---:|
+  | **Diver-Retriever-0.6B** | 25.2 | **11.8 (measured)** | 0.39 |
+  | Diver-Retriever-1.7B | 27.3 | 33.4 (derived) | 1.11 |
+  | Diver-Retriever-4B-1020 | 31.9 | 78.5 (derived) | 2.62 |
 
-  Only 8× of that 96× spread is the model choice. **All rows below 4B are DERIVED from roofline
-  arithmetic, not measured** — no public tokens/sec benchmark exists for modern embedding models on a
-  T4, so the first GPU action is always a timed self-benchmark on a sample.
-- **The T4 is compute-bound, not bandwidth-bound**, for batched encoding (ridge point 203 FLOP/byte vs
-  batch intensity ~8,192). Consequence: shortening `max_length` barely helps speed *per token*
-  (512 → 128 saves ~9% of compute); the win from a short cap is that there are fewer real tokens, and the
-  much bigger win is **length-sorted batching**, which removes the padding tax for free.
+  Only the 0.6B row is measured; the others scale it by parameter count. **The project is comfortably
+  feasible** — one and a half 9-hour sessions for the whole corpus.
+- **fp32 → fp16 is the one big runtime lever, and it is real**: measured 1,847 → 5,991 tok/s, a **3.2×**
+  speedup, with peak VRAM halved. HuggingFace defaults to fp32, so this must be set explicitly.
+- **Length-sorted batching gave no measurable win — because sentence-transformers already sorts
+  internally.** Measured 5,860 sorted vs 5,991 "unsorted", i.e. nothing. This corrects the earlier claim
+  that padding cost ~3× *at runtime*. The padding factor is real in an **estimate** (multiplying
+  1.65M × 512 assumes 0.85B tokens against 0.26B actual) but not in **execution** with
+  sentence-transformers. Count real tokens when estimating; do not expect a speedup from sorting.
+- **The T4 is compute-bound, not bandwidth-bound**, for batched encoding. Consequence: shortening
+  `max_length` barely helps speed *per token*; the win from a short cap is simply fewer real tokens.
+- **Smaller batches are faster here**: 6,073 tok/s at batch 8 against 5,350 at batch 128, and peak VRAM
+  at batch 8 was **1.74 GB of 15.6**. The T4 is nowhere near memory-bound at this model size, so VRAM is
+  not the binding constraint — quota is.
+- **`torch.cuda.is_bf16_supported()` returns True on sm75 and must not be trusted.** The T4 has no bf16
+  tensor cores; the flag reflects emulation. Set fp16 explicitly and verify `model.dtype` after loading.
+  The fp16 cast is numerically safe here — measured 0 inf, 0 nan, norms within 5e-4 of 1.0.
+- **Kaggle allocated 2× T4** for this session. Only one was used. Using both could roughly halve
+  wall-clock, but whether it bills quota at 1× or 2× is still unmeasured.
 - **Query-side work is ~1000× cheaper than corpus-side work** — 1,730 queries vs 1.65M documents. TEMPO
   Table 5 reports explicit temporal-intent tagging giving ReasonIR **+8.0**, which is larger than the
   entire 4B → 0.6B quality penalty (−3.7 BRIGHT) and costs almost nothing. Spend the corpus budget once

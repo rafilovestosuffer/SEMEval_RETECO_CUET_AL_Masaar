@@ -56,7 +56,24 @@ def test_every_row_names_the_commit_that_produced_it() -> None:
     for number, row in enumerate(read_rows()[1:], start=2):
         entry = dict(zip(EXPECTED_COLUMNS, row))
         assert entry["git_commit"].strip(), f"ledger row {number} has no git_commit"
-        assert entry["macro_ndcg10"].strip(), f"ledger row {number} has no score"
+
+
+def test_every_row_carries_a_measurement_of_some_kind() -> None:
+    """A row must record either a score or a compute cost — never neither.
+
+    Relaxed on 2026-09-22 from "every row has a macro_ndcg10". The Phase 4a throughput
+    benchmark is a legitimate run to log under §5.7 (gpu_hours, hardware) but ran no
+    retrieval, so it has no nDCG. Forcing a number into that column would have meant
+    inventing one, which is precisely what §5.6 forbids. The protection that matters is
+    that a row cannot be empty of evidence altogether.
+    """
+    for number, row in enumerate(read_rows()[1:], start=2):
+        entry = dict(zip(EXPECTED_COLUMNS, row))
+        has_score = bool(entry["macro_ndcg10"].strip())
+        has_cost = bool(entry["gpu_hours"].strip())
+        assert has_score or has_cost, (
+            f"ledger row {number} records neither a score nor a compute cost"
+        )
 
 
 def test_every_dev_row_states_why_dev_was_touched() -> None:
