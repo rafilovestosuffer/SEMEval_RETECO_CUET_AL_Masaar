@@ -185,7 +185,14 @@ def main() -> int:
         if vectors.shape[0] != int(meta["n_unique"]):
             die(f"{domain}: {vectors.shape[0]} vectors but doc_index says {meta['n_unique']}")
 
-        mat = torch.from_numpy(vectors).cuda().half()          # [n_unique, dim]
+        # fp32 for the similarity matmul, not fp16. Storing the embeddings in fp16 is fine
+        # -- that is a storage decision -- but producing the SCORES in fp16 quantises them
+        # to a 2^-11 grid near 0.78, and run 3 measured **69.9% of retrieved documents
+        # sitting in an exact-score tie group**, only ~50 distinct scores per top-100. The
+        # ranking was being decided by the corpus-order tie-break rather than by the model
+        # for most of the list. fp32 costs 820 MB for History's 200k unique vectors against
+        # 15.6 GB available, which is nothing.
+        mat = torch.from_numpy(vectors).cuda().float()         # [n_unique, dim]
         rows_t = torch.from_numpy(rows).cuda()
 
         # ---- 1a: whole query -------------------------------------------------
@@ -206,13 +213,13 @@ def main() -> int:
             if not items:
                 continue
             ids = [i for i, _ in items]
-            qv = torch.from_numpy(encode_queries([t for _, t in items])).cuda().half()
+            qv = torch.from_numpy(encode_queries([t for _, t in items])).cuda().float()
             d_runs = RUNS / domain
             d_runs.mkdir(parents=True, exist_ok=True)
             path = d_runs / f"run_{sub}_{SPLIT}.trec"
             with path.open("w", encoding="utf-8", newline="\n") as fh:
                 for start in range(0, len(ids), 64):
-                    sims = (qv[start:start + 64] @ mat.T).float()      # [b, n_unique]
+                    sims = qv[start:start + 64] @ mat.T               # [b, n_unique], fp32
                     per_doc = sims[:, rows_t].cpu().numpy()            # [b, n_docs]
                     for i, qid in enumerate(ids[start:start + 64]):
                         scores = per_doc[i]
