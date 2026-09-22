@@ -1,0 +1,15 @@
+{
+  "id": "rafiurrahman01/reteco-phase7-rerank",
+  "title": "RETECO phase7 rerank",
+  "code_file": "phase7_rerank.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": ["rafiurrahman01/reteco-p7-input"],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

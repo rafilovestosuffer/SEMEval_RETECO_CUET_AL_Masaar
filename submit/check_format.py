@@ -171,7 +171,11 @@ def validate(run: Path, qrels: Path | None = None, corpus: Path | None = None,
     if corpus is not None:
         cmd += ["--corpus", str(corpus), "--doc-key", doc_key]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    # The organizers' checker opens files with the platform default encoding; on Windows
+    # that is cp1252 and the corpus is UTF-8, so it crashed before reading a line and was
+    # reported as "INVALID, 0 lines". UTF-8 mode fixes it without touching their code.
+    env = {**os.environ, "PYTHONUTF8": "1"}
+    proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env)
     stdout = proc.stdout or ""
     errors = [ln.strip() for ln in stdout.splitlines() if ln.strip().startswith("ERROR")]
     warnings = [ln.strip() for ln in stdout.splitlines() if ln.strip().startswith("warn")]
