@@ -42,6 +42,29 @@ This is the Phase 4 hybrid baseline; RRF is the alternative to compare against.
 SFR-Embedding-Mistral is 59.0 on BEIR and 18.3 on BRIGHT. **Never pick an embedder off MTEB for this
 task.** Use models with published BRIGHT *or* TEMPO numbers only.
 
+## Verified against the model card and config.json — 22 Sept 2026
+
+Checked before committing Phase 4 to this model (§3: never take a model name on trust).
+`AQ-MedAI/Diver-Retriever-4B-1020` exists, is public, **Apache 2.0**, and its card reports
+BRIGHT **31.9** (original queries) / 32.1 (GPT-4 reasoning queries) — consistent with the
+28.9–31.9 range above. `config.json`: `hidden_size` 2560, 36 layers, vocab 151665,
+`max_position_embeddings` 40960, `torch_dtype` **bfloat16**, `Qwen3ForCausalLM` over
+`Qwen/Qwen3-4B-Base`. Three consequences, none of them cosmetic:
+
+- **Embeddings are 2560-d, not 1024-d.** CLAUDE.md §6 sized the cache at "1.65M docs ×
+  1024-d fp16 ≈ 3.3 GB". At 2560-d it is **8.5 GB** — 2.5× the plan. History alone
+  (356,493 docs) is 1.8 GB. Still fits Kaggle's ~20 GB working disk *beside the corpus*,
+  but only just, so embeddings must be written per domain as they are produced and never
+  all held at once. §6 corrected.
+- **The weights are bf16 and neither of our GPUs supports bf16** (T4 is compute 7.5, P100
+  is 6.0). They must be loaded as fp16, which has the same 10-bit mantissa but a much
+  narrower exponent range, so a value that is finite in bf16 can overflow to inf in fp16.
+  This is usually harmless for inference but is not guaranteed — the Phase 4 smoke test
+  must check for inf/nan in the embeddings before a full corpus pass, not after.
+- **40960-token context**, so `SUMMARY.md`'s warning about long rewrites being wasted on a
+  short-context encoder (GRIT-7B's 256-token cap) does not apply here. If Phase 6 happens,
+  rewrite length is bounded by compute, not by the encoder.
+
 ## Cost to be honest about
 
 Stages 2 and 4 both need an LLM at query time; stage 2 additionally needs two retrieval rounds per query.

@@ -151,7 +151,12 @@ Dates:
 
 Compute planning rules:
 - Estimate GPU-hours before proposing any run (docs × tokens × throughput). Say the estimate out loud.
-- Embed corpora once per model, store fp16 per domain, reuse forever. 1.65M docs × 1024-d fp16 ≈ 3.3 GB.
+- Embed corpora once per model, store fp16 per domain, reuse forever. **Corrected 22 Sept 2026:** the
+  Phase 4 candidate `AQ-MedAI/Diver-Retriever-4B-1020` has `hidden_size` 2560, not the 1024 assumed here,
+  so 1.65M docs × 2560-d fp16 ≈ **8.5 GB**, not 3.3 GB (History alone is 1.8 GB). Fits Kaggle's ~20 GB
+  working disk beside the corpus, but only if each domain is written out as it is produced. Its weights
+  are bf16 and neither the T4 (7.5) nor the P100 (6.0) supports bf16 — load fp16 and check for inf/nan
+  on a small batch before committing to a full pass (`notes/lit/diver.md`).
 - Truncate documents deliberately (check length distribution first); consider passage chunking only if data shows long docs hurt.
 - Largest domain is History (801 queries, 356,493 docs) — it dominates query count but **not** the score. Resolved
   16 Sept 2026 (see §4): the official average is per-domain first, then equal-weight macro across the 13 domains.
