@@ -132,8 +132,9 @@ def main() -> int:
     else:
         LOG.info("%s does not exist -> creating it (%s)", ref, "public" if args.public else "private")
         cmd = ["datasets", "create", "-p", str(directory), "--dir-mode", args.dir_mode]
-        if not args.public:
-            cmd.append("--private")
+        # Kaggle CLI 2.x creates private by default and removed --private; opt in to public.
+        if args.public:
+            cmd.append("--public")
 
     try:
         proc = run_kaggle(cmd)

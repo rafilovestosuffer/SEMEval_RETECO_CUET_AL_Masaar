@@ -305,6 +305,9 @@ def main() -> int:
             print(f"  chunk {c0 // CHUNK + 1}: {len(done)}/{len(order)} queries, "
                   f"{time.monotonic() - t0:.0f}s this chunk, {el / len(done):.2f}s/query, "
                   f"parse failures {parse_fail}, stats {stats}", flush=True)
+            if c0 == 0 and parse_fail > 0.2 * max(len(log), 1):
+                die(f"{parse_fail} of {len(log)} windows unparseable in the first chunk — "
+                    f"prompt or template mismatch; inspect {RAW} before spending more quota")
 
     report["seconds_total"] = round(time.monotonic() - started, 1)
     save()
