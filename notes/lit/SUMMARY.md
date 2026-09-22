@@ -64,14 +64,22 @@ operations, because it is where the cost actually is:
 4. **Benchmark before committing.** Every throughput figure below 4B is roofline arithmetic, not a
    measurement — no public T4 embedding benchmark exists.
 
-Then hybrid with BM25 at 0.5/0.5 on min-max normalised scores, and compare against RRF. **But note BM25
-is very weak on TEMPO (10.8 vs 32.0)**, far weaker than on BRIGHT, so tune the interpolation weight
-rather than copying DIVER's 0.5. Select on **train CV only**.
+**Hybrid with BM25: probably don't, and the +3 is unreproduced (revised 22 Sept 2026).** Two independent
+sources report BM25 interpolation *regressing* strong dense arms above roughly 20 BRIGHT nDCG@10 — a
+Waterloo reproducibility study finds Diver 29.1 → 27.2 and ReasonEmbed 36.9 → 31.1 — and DIVER's own
++3 claim carries **no weight ablation anywhere in the paper**. Our BM25 is weaker still (0.0944, with
+77.7% of queries at exactly 0.0), which is the regime where a weak arm adds noise rather than signal.
+**RRF is the wrong operator here specifically**: with most lists containing nothing relevant, RRF still
+awards them a full 1/(k+1) at rank 1, laundering noise into confident ranks. If fusing at all, use
+weighted interpolation on theoretical min-max, sweep `a ∈ {0, 0.02, 0.05, 0.10, 0.15, 0.20, 0.30, 0.50}`,
+and expect monotone decline — a broad inverted-U peaking at 0.5 would be a bug signal. Decide it on
+**marginal recall@100** (gold that BM25 finds and dense misses) before spending anything else.
 
-**Spend the saved hours on the query side.** TEMPO Table 5: explicit temporal-intent tagging gives
-ReasonIR **+8.0**, more than twice the entire 4B → 0.6B penalty, and it scales with 1,730 queries rather
-than 1.65M documents. That trade — a smaller encoder funding query-side temporal work — is the single
-best use of a 30 GPU-hour/week budget.
+**Spend the saved hours on the query side — but not on intent tags.** The "+8.0" that previously
+justified this is an oracle on one instruction-conditioned model; across Table 5's full column eleven of
+twelve retrievers average −0.6 and **DiVeR is −1.8** (`notes/lit/tempo.md`). The measured replacement,
+on TEMPO itself, is **equal-weight fusion of offline reasoning views: 0.265 → 0.284 with no learning**
+(arXiv 2608.08940). Generation is offline, so the LLM is never called at inference and it stays legal.
 
 **Phase 5 — step fusion (H2), our actual contribution.** Two independent papers say decomposition used
 *instead of* the query hurts: TEMPO Step-Only 14.6 ≪ Query+Step 26.4, and ReasonIR found LangChain

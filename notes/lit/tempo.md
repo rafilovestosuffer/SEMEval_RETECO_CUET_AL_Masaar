@@ -32,13 +32,30 @@ Per-domain spread is enormous: Politics 47.9, Iota 41.7, Law 40.8 vs Bitcoin 17.
   isolated steps lack context. But they never fuse step-level *rankings* back into a 1a ranking, which is
   what H2 proposes. **This is a genuine open gap and our most likely real contribution.**
   (RETECO's official 1b already uses Query+Step, i.e. their best variant.)
-- **H3 — temporal rewriting: CONFIRMED but strongly model-dependent.** Table 5 "Normalized" (explicit
-  temporal intent tags) gives ReasonIR **+8.0** (27.2→35.3), the largest single gain in the paper, while BM25
-  is unmoved (10.8→10.9). Figure 8: LLM-generated reasoning gives ReasonIR **+13.7** with GPT-4o
-  (27.2→41.0) but **degrades BM25 to 4.3–6.2** — reasoning text dilutes lexical signal. DiVeR is flat
-  (30.7–32.2), having internalised the reasoning.
-  **Rule: rewriting helps reasoning-aware retrievers a lot and actively harms BM25.** Never apply one
-  rewrite to both arms of a hybrid.
+- **H3 — temporal rewriting: model-dependent, and the headline number does NOT generalise.**
+  Table 5 "Normalized" (explicit temporal intent tags) gives ReasonIR **+8.0** (27.3→35.3) — but
+  **read the whole column, not that one cell** (completed 22 Sept 2026; the earlier version of this
+  note recorded only ReasonIR and BM25 and was quietly misleading by omission):
+
+  | effect of intent tags | value |
+  |---|---|
+  | ReasonIR | **+8.0** |
+  | Contriever / Qwen / BGE / BM25 | +1.0 / +0.5 / +0.1 / +0.1 |
+  | Inst-L / GritLM / SFR | −0.1 / −0.1 / −0.5 |
+  | E5 / SBERT / **DiVeR** / Rader | −1.3 / −1.4 / **−1.8** / −2.6 |
+
+  Eleven of twelve retrievers average about **−0.6**. ReasonIR is instruction-conditioned, which is
+  most likely why only it responds to an appended instruction-like clause. **For a DIVER-family
+  first stage, Table 5 predicts this treatment hurts.** The tags are also gold-derived (TEMPO's
+  GPT-4o annotation layer) with no template, example or construction code published, so +8.0 is an
+  **oracle ceiling on one model**, not an achievable gain.
+
+  Figure 8: LLM-generated reasoning gives ReasonIR **+13.7** with GPT-4o (27.2→41.0) but **degrades
+  BM25 to 4.3–6.2** — reasoning text dilutes lexical signal. DiVeR is flat (30.7–32.2), having
+  internalised the reasoning.
+  **Rule that survives: never send one augmented query to both arms of a hybrid** — raw text to the
+  sparse arm, augmented text to the dense arm only. That is a config choice worth ~5 nDCG@10 of
+  avoided loss at zero cost, and it is the durable part of H3.
 - **H5 — domain variation: CONFIRMED.** See spread above. Also: no single model wins everywhere.
 
 ## Two findings that reframe the problem

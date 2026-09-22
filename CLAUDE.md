@@ -195,10 +195,18 @@ Compute planning rules:
   The fp16 cast is numerically safe here — measured 0 inf, 0 nan, norms within 5e-4 of 1.0.
 - **Kaggle allocated 2× T4** for this session. Only one was used. Using both could roughly halve
   wall-clock, but whether it bills quota at 1× or 2× is still unmeasured.
-- **Query-side work is ~1000× cheaper than corpus-side work** — 1,730 queries vs 1.65M documents. TEMPO
-  Table 5 reports explicit temporal-intent tagging giving ReasonIR **+8.0**, which is larger than the
-  entire 4B → 0.6B quality penalty (−3.7 BRIGHT) and costs almost nothing. Spend the corpus budget once
-  on a small model, then spend the remaining quota on the query side.
+- **Query-side work is ~1000× cheaper than corpus-side work** — 1,730 queries vs 1.65M documents. The
+  conclusion stands; **the number originally cited for it does not (corrected 22 Sept 2026).** This bullet
+  previously justified the 0.6B choice partly on TEMPO Table 5's "+8.0 from temporal-intent tagging".
+  Reading the whole column rather than the ReasonIR cell: eleven of twelve retrievers average **−0.6**,
+  and **DiVeR specifically is −1.8**, so that treatment is predicted to *hurt* our first stage. The tags
+  are gold-derived with no published construction, making +8.0 an oracle ceiling on one
+  instruction-conditioned model (`notes/lit/tempo.md`).
+
+  What replaces it, and is measured on TEMPO itself: **equal-weight fusion of offline-generated
+  reasoning views, 0.265 → 0.284 (+1.9) with no learning at all** (arXiv 2608.08940). A learned gate
+  adds only ~+0.005 at matched K, and gated K=3 beat K=5 — so prune views, do not gate them. Generation
+  is offline and the LLM is never called at retrieval time, which keeps it legal at inference.
 - Embed corpora once per model, store fp16 per domain, reuse forever. Verified `config.json` values
   (22 Sept 2026), so the cache size follows from the model choice:
 
