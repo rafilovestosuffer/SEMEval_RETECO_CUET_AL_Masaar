@@ -10,6 +10,10 @@ Last updated: 2026-09-22
 
 ## Current phase
 
+**Phase 5 — H2 ANSWERED 2026-09-23, with a mechanism.** Step fusion beats whole-query
+retrieval by +0.0115 nDCG@10 (paired CI excludes zero), and the gain comes from **candidate
+pool union rather than score blending** — see below. This is the paper's contribution.
+
 **Phase 4 — first stage COMPLETE 2026-09-23. H1 confirmed on our own data.**
 Dense retrieval beats BM25 by 2.7x, and the corpus is embedded and reusable.
 
@@ -78,16 +82,52 @@ Per-domain, dense wins everywhere. The largest gains are on the domains BM25 han
 history 0.0691 -> 0.2889 (and it is 46% of the metric), economics 0.0382 -> 0.1977, workplace
 0.0777 -> 0.2920.
 
+## Phase 5 result — H2, and why it works
+
+Fusing each query's 1b Query+Step rankings with its 1a ranking, scored against the 1a qrels,
+train split (ledger `phase5_stepfuse_*`):
+
+| parent weight | query macro | vs whole-query | paired 95% CI |
+|---|---:|---:|---|
+| 0 (steps only) | 0.2584 | +0.0014 | [−0.0048, +0.0074] **ns** |
+| **0.001** | **0.2685** | **+0.0115** | [+0.0071, +0.0162] **significant** |
+| 0.25 | 0.2668 | +0.0098 | [+0.0060, +0.0137] significant |
+| 5 | 0.2600 | +0.0030 | [+0.0010, +0.0050] significant |
+| 10 | 0.2584 | +0.0014 | [−0.0003, +0.0030] ns |
+
+Whole-query baseline 0.2570. The curve is flat from w=0.001 to ~0.25, then declines
+monotonically as the parent dilutes the step signal.
+
+**The mechanism is pool union, not score blending.** A parent weight of **0.1%** captures the
+entire gain, while w=0 captures none — because w=0 removes the parent's documents from the
+candidate pool rather than merely down-weighting them. Candidate-pool recall@100 makes it
+explicit:
+
+| pool | recall@100 |
+|---|---:|
+| whole-query only | 0.6479 |
+| steps only | 0.6466 |
+| **union** | **0.6849** |
+
+The two retrieval formulations find **nearly the same amount** of gold and **different gold** —
+each adds about +0.037 recall over the other. So the parent query's contribution is *coverage*,
+not ranking signal, and the honest description of the method is a candidate-pool union with a
+tie-break, not a weighted score fusion.
+
+This matches what Phase 4 found for BM25 and dense, where pooling had headroom (+0.027 union
+recall) while score fusion would have diluted the stronger arm. Two independent instances of
+the same lesson: on this benchmark, **merge candidate pools, do not blend scores.**
+
 ## Next step (the ONE step)
 
-**Phase 5 — step fusion (H2), the contribution.** Phase 4c produced both the 1a and 1b runs
-needed, `reteco/stepfuse.py` is built and tested, and the design is settled by research:
-augment never replace, sum over RRF, and **sweep the parent-versus-steps weight** — the one knob
-absent from every paper reviewed. Endpoints are interpretable: a large weight reproduces the 1a
-baseline exactly, zero is TEMPO's known-bad Step-Only.
+**Phase 5b — the operator and normalisation ablation**, now that the mechanism is understood.
+Because the gain is pool union, the operator should matter far less than the literature
+suggests, and sum-vs-max-vs-RRF becomes a test of that prediction rather than a search for a
+best-of. RRF in particular should look *better* than its reputation here, since with pool union
+doing the work its inability to read score magnitude costs little.
 
-Run it as a train-only CV sweep with the paired bootstrap deciding, then re-open Phase 7 with
-the corrected recall ceiling.
+Then re-open Phase 7 with the corrected recall ceiling (dense recall@100 is 0.648, not the
+0.268 that the "do not rerank" conclusion rested on), and run the whole thing once on dev.
 
 ---|---:|---|---|---:|
 | politics | 0.581 | | travel | 0.209 |
@@ -288,7 +328,8 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
       aggregations reported, paired test calibrated against a shuffle null)*
 - [x] **Phase 4** — first-stage config picked on train CV only *(2026-09-23: Diver-Retriever-0.6B,
       1a 0.2567 vs BM25 0.0944, paired CI excludes zero; BM25 fusion rejected on measured evidence)*
-- [ ] **Phase 5** — H2 (step fusion) answered with CI
+- [x] **Phase 5** — H2 (step fusion) answered with CI *(2026-09-23: +0.0115 nDCG@10,
+      [+0.0071,+0.0162]; mechanism is pool union, not score blending)*
 - [ ] **Phase 6** — query rewriting gain > CI width, cost acceptable
 - [ ] **Phase 7** — H4 (reranking) answered, GPU-hours logged
 - [ ] **Phase 8** — v1 frozen, single dev eval, submission dry-run

@@ -111,6 +111,8 @@ def main() -> int:
                         default=Path("cache/docidx/embeddings"),
                         help="holds <domain>/doc_index.json for the corpus-order tie-break")
     parser.add_argument("--split", default="train")
+    parser.add_argument("--weights", nargs="+", type=float, default=list(DEFAULT_WEIGHTS),
+                        help="parent weights to sweep")
     parser.add_argument("--operators", nargs="+", default=["sum"],
                         choices=("sum", "max", "rrf"))
     parser.add_argument("--normalise", default="theoretical",
@@ -124,6 +126,7 @@ def main() -> int:
     print(f"sweeping {args.operators} x {len(DEFAULT_WEIGHTS)} weights, "
           f"normalise={args.normalise}\n")
     results = sweep(args.runs, args.qrels_dir, args.doc_index, args.split,
+                    weights=tuple(args.weights),
                     operators=tuple(args.operators), normalise=args.normalise)
     if not results:
         print("nothing scored", file=sys.stderr)
