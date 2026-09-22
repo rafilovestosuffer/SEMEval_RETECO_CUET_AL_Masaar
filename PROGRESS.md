@@ -4,11 +4,13 @@
 > Update it at the end of every session: what changed, what is *verified*, what is next.
 > A number appears here only if code in this repo produced it and it is in `results/ledger.csv` (§5.6).
 
-Last updated: 2026-09-22
+Last updated: 2026-09-23
 
 ---
 
 ## Current phase
+
+**Phase 5b — operator ablation DONE 2026-09-23: operator does not matter once pools are unioned; config unchanged.**
 
 **Phase 5 — H2 ANSWERED 2026-09-23, with a mechanism.** Step fusion beats whole-query
 retrieval by +0.0115 nDCG@10 (paired CI excludes zero), and the gain comes from **candidate
@@ -118,16 +120,44 @@ This matches what Phase 4 found for BM25 and dense, where pooling had headroom (
 recall) while score fusion would have diluted the stronger arm. Two independent instances of
 the same lesson: on this benchmark, **merge candidate pools, do not blend scores.**
 
+## Phase 5b result — the operator does not matter, the weight does
+
+Train split, 3 operators × 3 normalisations × 5 parent weights, all against the 1a qrels
+(ledger `phase5b_*`, commit `38f4561`, local CPU only, dev untouched). The prediction from
+the pool-union mechanism held:
+
+| config | query macro | vs Phase 5 pick (sum/theoretical, w=0.001) |
+|---|---:|---|
+| max / rank | 0.2695 | +0.0010 [−0.0026, +0.0044] ns |
+| sum / rank, w=0.001 | 0.2691 | +0.0006 [−0.0014, +0.0026] ns |
+| sum / minmax, w=0.001 | 0.2690 | +0.0004 [−0.0001, +0.0010] ns |
+| **sum / theoretical, w=0.001** | **0.2685** | — |
+| RRF, w=0.001 | 0.2683 | −0.0003 [−0.0023, +0.0017] ns |
+| max / theoretical | 0.2654 | −0.0032 [−0.0070, +0.0004] ns |
+| **RRF, w=1 (textbook equal weight)** | 0.2625 | **−0.0060 [−0.0093, −0.0031] significant** |
+
+- Every config with the parent in the pool lands in 0.2654–0.2695 (+0.008 to +0.013 over
+  whole-query, all significant); every w=0 config is ns. **Pool membership decides the
+  result, and the operator does not.**
+- The one significant difference is textbook equal-weight RRF, and at w=0.001 RRF recovers
+  fully. It loses because of the parent's **weight**, not because it is RRF, which matches
+  the Phase 5 curve.
+- `max` ignores `parent_weight` in `reteco/stepfuse.py` (unweighted max over lists), so it
+  is flat across w. That makes it the purest "union + best-score" operator, and it is the
+  top number here, but not significantly so.
+- **Decision: keep sum / theoretical / w=0.001.** Nothing beat it significantly, and
+  switching would pick a best-of from noise (§5.2 spirit). Per-domain, History moves
+  0.2901 → 0.2987 (it is 561 of 1,211 train queries). law, monero and quant dip slightly, and
+  those three are 94 queries combined.
+
 ## Next step (the ONE step)
 
-**Phase 5b — the operator and normalisation ablation**, now that the mechanism is understood.
-Because the gain is pool union, the operator should matter far less than the literature
-suggests, and sum-vs-max-vs-RRF becomes a test of that prediction rather than a search for a
-best-of. RRF in particular should look *better* than its reputation here, since with pool union
-doing the work its inability to read score magnitude costs little.
-
-Then re-open Phase 7 with the corrected recall ceiling (dense recall@100 is 0.648, not the
-0.268 that the "do not rerank" conclusion rested on), and run the whole thing once on dev.
+**Phase 7 — reranking, re-decided on the corrected ceiling.** Dense recall@100 is 0.648 and
+the fused pool's is 0.685, so a reranker has real headroom. The "do not rerank" conclusion
+rested on BM25's 0.268. Before any GPU run, this needs (a) a reranker choice researched
+against BRIGHT/TEMPO numbers, avoiding MS MARCO cross-encoders (presumed harmful,
+`notes/lit/SUMMARY.md` row 7), (b) a GPU-hour estimate for 1,211 train queries × top-k, and
+(c) Rafi's go-ahead. Phase 6 (query rewriting) stays optional and behind Phase 7.
 
 ---|---:|---|---|---:|
 | politics | 0.581 | | travel | 0.209 |
