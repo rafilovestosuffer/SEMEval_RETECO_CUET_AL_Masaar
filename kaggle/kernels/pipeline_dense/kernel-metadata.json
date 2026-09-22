@@ -1,0 +1,17 @@
+{
+  "id": "rafiurrahman01/reteco-pipeline-dense",
+  "title": "RETECO pipeline dense",
+  "code_file": "pipeline_dense.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [
+    "rafiurrahman01/reteco-phase4b-embed-corpus"
+  ],
+  "model_sources": []
+}
