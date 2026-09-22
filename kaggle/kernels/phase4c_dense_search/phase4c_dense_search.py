@@ -73,15 +73,35 @@ def die(reason: str) -> None:
 
 
 def find_embeddings() -> Path:
-    """Locate Phase 4b's output among the attached inputs."""
+    """Locate Phase 4b's output among the attached inputs.
+
+    Run 1 failed here with `kernel_sources` correctly registered on the kernel but
+    /kaggle/input empty — most likely because 4b had finished only minutes earlier and its
+    output was not published yet. So this prints what it actually sees before giving up:
+    a wrong assumption about the mount layout and an unpublished source look identical
+    from the error message alone, and they need opposite fixes.
+    """
     if not KAGGLE_INPUT.is_dir():
-        die("no /kaggle/input — attach the phase4b kernel output as a source")
-    for source in sorted(KAGGLE_INPUT.iterdir()):
+        die("no /kaggle/input at all — attach the phase4b kernel output as a source")
+
+    sources = sorted(KAGGLE_INPUT.iterdir())
+    print(f"  /kaggle/input has {len(sources)} source(s): "
+          f"{[s.name for s in sources] or 'EMPTY'}")
+    for source in sources:
+        if not source.is_dir():
+            continue
+        entries = sorted(p.name for p in source.iterdir())[:12]
+        print(f"    {source.name}/ -> {entries}")
         for base in (source / "embeddings", source):
             if base.is_dir() and any(base.glob("*/doc_index.json")):
-                print(f"  embeddings at {base}")
+                n = len(list(base.glob("*/doc_index.json")))
+                print(f"  found {n} domain index files at {base}")
                 return base
-    die(f"no embeddings under {KAGGLE_INPUT}; attach reteco-phase4b-embed-corpus")
+
+    die(f"no */doc_index.json under any source in {KAGGLE_INPUT} (listing above). "
+        f"If the listing is EMPTY the phase4b output was not published yet — wait for it "
+        f"to appear on the kernel's Output tab and re-push. If sources are present but "
+        f"the layout differs, adjust the search path here.")
     raise AssertionError("unreachable")
 
 
