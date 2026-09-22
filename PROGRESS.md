@@ -69,15 +69,40 @@ rerank — **cannot** be computed from them and remains unmeasured.
 
 ## Next step (the ONE step)
 
-**Phase 4 — first-stage retrieval.** Everything above says this is where the score is. Before any
-GPU run, the open questions from the research pass must be settled in this order:
-1. **Throughput probe.** A timed 1,000-document embedding run on a T4 to convert the estimated
-   115–150 GPU-hours for 1.65M docs into a measured number. 30 GPU-h/week makes this decisive.
-2. **Deduplicate first.** 29.4% of the corpus is byte-identical duplicate text, so embedding
-   unique content hashes cuts the dominant cost by that much before any other optimisation.
-3. **Model choice.** ReasonEmbed-4B (BRIGHT 37.1) vs Diver-Retriever-4B-1020 (31.9) — but
-   ReasonEmbed has no published TEMPO number, and BRIGHT rank does not transfer cleanly to TEMPO
-   (E5/SFR rank 2nd/3rd there while being mid-tier on BRIGHT).
+**Phase 4a — a one-hour throughput benchmark on Kaggle, before any full run.**
+
+The GPU-cost research (`reports/T4 embedding cost reduction.md`, 22 Sept 2026) overturned the estimate
+that made Phase 4 look impossible. The 115–150 GPU-hour figure came from two library defaults, not from
+the hardware: fp32 instead of fp16 (~3x), and padding every batch to `max_length` without length-sorting
+(~3x, since the corpus mean is 158 tokens against a 512 cap). Corrected ladder:
+
+| config | GPU-hours for the corpus |
+|---|---:|
+| fp32, padded to 512, 4B | ~540 |
+| fp16, length-sorted, 4B | ~56 |
+| fp16, length-sorted, **0.6B** | **~7** |
+
+Only 8x of that 96x spread is the model. `AQ-MedAI/Diver-Retriever-0.6B` exists, is Apache-2.0, is
+1024-dim, and scores **BRIGHT 25.2** against the 4B's 28.9 — 3.7 points for ~8x the hours, and still
+ahead of every model in the original BRIGHT paper including GTE-Qwen-7.7B (22.5).
+
+**Everything below 4B in that table is roofline arithmetic, not a measurement** — no public tokens/sec
+benchmark exists for modern embedding models on a T4. So the next step is not the full run; it is a
+timed encode of a stratified ~20k-document sample that turns the derived number into a real one, and at
+the same time settles four unknowns:
+
+1. Does `model.dtype` actually come back fp16 (the DIVER cards specify bf16, which sm75 lacks)?
+2. Any inf/nan in the embeddings after the bf16 -> fp16 cast?
+3. What batch/token budget saturates a T4 at 512 tokens without OOM?
+4. Does Kaggle's **T4x2** bill quota at 1x or 2x? Undocumented, and worth 2x wall-clock if it is 1x.
+
+Order the full run as: deduplicate by content hash (-29.4%, free) -> length-sort globally -> shard over
+the sorted order -> fp16 -> write each shard with a `.done` sentinel so a killed session resumes.
+
+**Then spend the saved hours on the query side, not the corpus.** TEMPO Table 5 gives explicit
+temporal-intent tagging **+8.0** on ReasonIR — more than twice the entire 4B -> 0.6B penalty — and it
+scales with 1,730 queries rather than 1.65M documents. A smaller encoder funding query-side temporal
+work is the best use of a 30 GPU-hour/week budget.
 
 ---
 

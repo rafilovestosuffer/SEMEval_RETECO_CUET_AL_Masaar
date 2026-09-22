@@ -154,7 +154,10 @@ Dates:
 
 - Local: Windows + Git Bash, Dell Latitude i7 7th gen, 16 GB RAM, **no GPU**. Python, PyTorch, HF Transformers.
   Local = code, CPU smoke tests on tiny domains (IOTA: 10 queries, 10,372 docs), scoring, analysis.
-- GPU: free Kaggle T4 (16 GB) / P100, ~30 GPU-hrs/week per account quota, ~20 GB working disk, ~30 GB RAM, 12 h session limit.
+- GPU: free Kaggle T4 (16 GB) / P100, ~30 GPU-hrs/week per account quota, ~20 GB working disk, ~30 GB RAM.
+  **GPU sessions cap at 9 h, not 12** — the 12 h limit applies to CPU-only sessions (corrected 22 Sept 2026).
+  Kaggle also offers **T4×2** (two independent 16 GB T4s); whether that bills quota at 1× or 2× is
+  undocumented and is worth measuring before relying on it.
   Colab free as backup. Local LM Studio (Qwen2.5-7B-Instruct) is CPU-only and slow — not for bulk inference.
 - Budget: assume **no paid APIs** unless Rafi explicitly approves a specific spend.
 - Power/connectivity can drop: every long job must checkpoint and resume (per-domain caching, shard-wise embedding).
@@ -162,12 +165,44 @@ Dates:
 
 Compute planning rules:
 - Estimate GPU-hours before proposing any run (docs × tokens × throughput). Say the estimate out loud.
-- Embed corpora once per model, store fp16 per domain, reuse forever. **Corrected 22 Sept 2026:** the
-  Phase 4 candidate `AQ-MedAI/Diver-Retriever-4B-1020` has `hidden_size` 2560, not the 1024 assumed here,
-  so 1.65M docs × 2560-d fp16 ≈ **8.5 GB**, not 3.3 GB (History alone is 1.8 GB). Fits Kaggle's ~20 GB
-  working disk beside the corpus, but only if each domain is written out as it is produced. Its weights
-  are bf16 and neither the T4 (7.5) nor the P100 (6.0) supports bf16 — load fp16 and check for inf/nan
-  on a small batch before committing to a full pass (`notes/lit/diver.md`).
+- **Estimate real tokens, not padded ones, and assume fp16.** Measured 22 Sept 2026: the corpus is
+  1,654,055 docs / **0.81B tokens** untruncated, falling to **~0.26B** after a 512-token cap and removing
+  the 29.4% byte-identical duplicates. A naive estimate that multiplies docs × max_length assumes
+  1.65M × 512 = 0.85B tokens — a **3.2× padding tax** over the 158-token mean — and HuggingFace defaults
+  to fp32, another ~3×. Those two defaults alone turn a ~7 h job into a ~540 h one, which is how this
+  project briefly looked infeasible. The ladder:
+
+  | config | GPU-hours for the corpus |
+  |---|---:|
+  | fp32, padded to 512, 4B | ~540 |
+  | fp16, length-sorted, 4B | ~56 |
+  | fp16, length-sorted, **0.6B** | **~7** |
+
+  Only 8× of that 96× spread is the model choice. **All rows below 4B are DERIVED from roofline
+  arithmetic, not measured** — no public tokens/sec benchmark exists for modern embedding models on a
+  T4, so the first GPU action is always a timed self-benchmark on a sample.
+- **The T4 is compute-bound, not bandwidth-bound**, for batched encoding (ridge point 203 FLOP/byte vs
+  batch intensity ~8,192). Consequence: shortening `max_length` barely helps speed *per token*
+  (512 → 128 saves ~9% of compute); the win from a short cap is that there are fewer real tokens, and the
+  much bigger win is **length-sorted batching**, which removes the padding tax for free.
+- **Query-side work is ~1000× cheaper than corpus-side work** — 1,730 queries vs 1.65M documents. TEMPO
+  Table 5 reports explicit temporal-intent tagging giving ReasonIR **+8.0**, which is larger than the
+  entire 4B → 0.6B quality penalty (−3.7 BRIGHT) and costs almost nothing. Spend the corpus budget once
+  on a small model, then spend the remaining quota on the query side.
+- Embed corpora once per model, store fp16 per domain, reuse forever. Verified `config.json` values
+  (22 Sept 2026), so the cache size follows from the model choice:
+
+  | model | dim | cache, all 1.65M docs | deduplicated (70.6%) |
+  |---|---:|---:|---:|
+  | **Diver-Retriever-0.6B** (the Phase 4 pick) | 1024 | 3.39 GB | **2.39 GB** |
+  | Diver-Retriever-1.7B | 2048 | 6.78 GB | 4.78 GB |
+  | Diver-Retriever-4B-1020 | 2560 | 8.47 GB | 5.98 GB |
+
+  The 0.6B lands back near this file's original 3.3 GB estimate; the 4B would have been 2.5× that and
+  awkward beside a 4.44 GB corpus on a ~20 GB disk. Write each domain out as it is produced regardless.
+  **None of the T4/P100 pair supports bf16** — set fp16 explicitly and check `model.dtype` after
+  loading, because HuggingFace defaults to fp32 and some DIVER cards specify bf16
+  (`notes/lit/diver.md`).
 - Truncate documents deliberately (check length distribution first); consider passage chunking only if data shows long docs hurt.
 - Largest domain is History (801 queries, 356,493 docs). **Corrected 22 Sept 2026 — this reverses the 16 Sept entry.**
   The leaderboard macro is over *queries* (§4), so History is worth ~46% of the train+dev score and ~66% of train

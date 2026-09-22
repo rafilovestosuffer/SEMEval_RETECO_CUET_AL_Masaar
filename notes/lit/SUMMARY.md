@@ -46,10 +46,32 @@ negative result — see below); **any MS MARCO-trained cross-encoder at large k*
 
 ## The one recommended build order
 
-**Phase 4 — first stage.** `AQ-MedAI/Diver-Retriever-4B-1020`, fp16, pinned revision. 4B ≈ 8 GB, fits a
-T4 with headroom. Embed each domain once, store fp16, reuse forever (§6). Fall back to BGE-M3 (<1B) if
-the 4B model will not fit alongside the batch. Then hybrid with BM25 at 0.5/0.5 on min-max normalised
-scores, and compare against RRF. Select on **train CV only**, per-domain.
+**Phase 4 — first stage. Revised 22 Sept 2026 after the GPU-cost research** (`reports/T4 embedding cost
+reduction.md`); the original text here named `Diver-Retriever-4B-1020` and is superseded.
+
+Start with **`AQ-MedAI/Diver-Retriever-0.6B`**, fp16, pinned revision. It costs 3.7 BRIGHT points
+against the 4B (25.2 vs 28.9) for roughly **8× fewer GPU-hours** — a derived ~7 h for the whole corpus
+versus ~56 h — and it still outscores every model in the original BRIGHT paper, including GTE-Qwen-7.7B.
+Upgrade to 1.7B (27.3, −1.6 points) only if a measured benchmark shows the quota allows it. Order of
+operations, because it is where the cost actually is:
+
+1. **Deduplicate by content hash first** — 29.4% of the corpus is byte-identical, so this is a free 29%
+   cut to the dominant expense (`notes/data_audit.md` §1).
+2. **Length-sort and use a token budget per batch.** The corpus mean is 158 tokens against a 512 cap, so
+   naive padding wastes 3.2× — this is a larger lever than the model choice and costs nothing in quality.
+3. **Verify `model.dtype` is fp16 after loading.** The DIVER cards specify bf16, which the T4 lacks; a
+   silent fp32 fallback costs ~3×.
+4. **Benchmark before committing.** Every throughput figure below 4B is roofline arithmetic, not a
+   measurement — no public T4 embedding benchmark exists.
+
+Then hybrid with BM25 at 0.5/0.5 on min-max normalised scores, and compare against RRF. **But note BM25
+is very weak on TEMPO (10.8 vs 32.0)**, far weaker than on BRIGHT, so tune the interpolation weight
+rather than copying DIVER's 0.5. Select on **train CV only**.
+
+**Spend the saved hours on the query side.** TEMPO Table 5: explicit temporal-intent tagging gives
+ReasonIR **+8.0**, more than twice the entire 4B → 0.6B penalty, and it scales with 1,730 queries rather
+than 1.65M documents. That trade — a smaller encoder funding query-side temporal work — is the single
+best use of a 30 GPU-hour/week budget.
 
 **Phase 5 — step fusion (H2), our actual contribution.** Two independent papers say decomposition used
 *instead of* the query hurts: TEMPO Step-Only 14.6 ≪ Query+Step 26.4, and ReasonIR found LangChain

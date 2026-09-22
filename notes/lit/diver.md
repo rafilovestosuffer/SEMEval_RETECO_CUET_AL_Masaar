@@ -19,12 +19,27 @@ Top scorer on TEMPO (32.0 nDCG@10, Table 3 there) and SOTA on BRIGHT (46.8). Fou
 
 ## The decisive practical fact
 
-> **Weights are open: `AQ-MedAI/Diver-Retriever-4B-1020` on Hugging Face.**
+> **Weights are open, and there is a whole size ladder — all Apache-2.0.**
 
-**4B in fp16 ≈ 8 GB → fits a T4 (16 GB) with headroom.** ReasonIR-8B (Llama-3.1-8B) is ~16 GB fp16 and
-does **not** comfortably fit. On BRIGHT original queries DIVER-Retriever (28.9 v1 / 31.9 v2) already beats
-ReasonIR-8B (24.4) and RaDeR-7B (25.5) while being half the size. For our compute budget this is the
-clear first-stage candidate.
+| repo | params | BRIGHT nDCG@10 |
+|---|---:|---:|
+| `AQ-MedAI/Diver-Retriever-0.6B` | 0.6B | **25.2** |
+| `AQ-MedAI/Diver-Retriever-1.7B` | 1.7B | **27.3** |
+| `AQ-MedAI/Diver-Retriever-4B` | 4B | 28.9 |
+| `AQ-MedAI/Diver-Retriever-4B-1020` | 4B | 31.9 |
+
+**Found 22 Sept 2026, and it changes the Phase 4 plan.** Going 4B → 0.6B costs **3.7 BRIGHT points
+(−12.8%)** for roughly **8× fewer GPU-hours**; 4B → 1.7B costs only 1.6 points. And DIVER-0.6B at 25.2
+still beats *every* model in the original BRIGHT paper, including GTE-Qwen-7.7B (22.5) and GritLM-7B
+(21.0) — a 0.6B model outscoring 7B ones is direct evidence that size is not the driver here.
+
+**4B in fp16 ≈ 8 GB → fits a T4 (16 GB) with headroom**, and 0.6B fits trivially. ReasonIR-8B
+(Llama-3.1-8B) is ~16 GB fp16 and does **not** comfortably fit. On BRIGHT original queries
+DIVER-Retriever already beats ReasonIR-8B (24.4) and RaDeR-7B (25.5) at half the size or less.
+
+Caveat carried from §"Verified" below: all DIVER cards specify **bf16**, which the T4 (compute 7.5)
+lacks. A card's bf16 default can silently fall back to fp32 and cost ~8× — check `model.dtype` after
+loading, never assume.
 
 The reranker (`Diver-GroupRank-32B`) is also open but 32B — **out of reach on a T4**; use a small
 cross-encoder instead at Phase 7.
