@@ -87,6 +87,38 @@ def fold_scores(scores: PerDomainTopics, fold: dict[str, list[str]]) -> PerDomai
     return out
 
 
+STEP_MARKER = "_step"
+
+
+def _reject_step_level_ids(topics_by_domain: dict[str, list[str]]) -> None:
+    """Refuse to fold sub-track 1b *step* ids — the unit of independence is the query.
+
+    Steps of one query share its phrasing and much of its gold, so splitting them across
+    folds leaks between train and held-out exactly as splitting one patient's scans would.
+    Measured on the real train split: folding step ids puts **74.8%** of parent queries
+    (839 of 1,121) on both sides of a fold boundary.
+
+    `eval/score_runs.py` emits per-query means for 1b by default, which is both the
+    official aggregation and the correct fold unit; its ``--by-step`` output is diagnostic
+    and must not be fed here. This is a hard error rather than a warning because the
+    resulting numbers look entirely plausible.
+    """
+    offenders = {}
+    for domain, ids in topics_by_domain.items():
+        parents = {i.rsplit(STEP_MARKER, 1)[0] for i in ids if STEP_MARKER in i}
+        steps = sum(1 for i in ids if STEP_MARKER in i)
+        if parents and steps > len(parents):
+            offenders[domain] = (steps, len(parents))
+    if offenders:
+        example = ", ".join(f"{d} ({s} steps / {p} queries)"
+                            for d, (s, p) in sorted(offenders.items())[:3])
+        raise ValueError(
+            "these look like sub-track 1b STEP ids, not query ids: " + example +
+            ". Steps of one query would be split across folds, which leaks. Score 1b "
+            "without --by-step so each query contributes one averaged value."
+        )
+
+
 def _macro(scores: PerDomainTopics, mode: str = DEFAULT_MACRO_MODE) -> float:
     """Fold macro under either aggregation — see `eval.bootstrap._macro`."""
     groups = [list(t.values()) for t in scores.values() if t]
@@ -110,6 +142,7 @@ def cross_validate(scores: PerDomainTopics, n_folds: int = DEFAULT_FOLDS,
     across folds reported", which is a different question from the CI.
     """
     topics_by_domain = {d: sorted(t) for d, t in scores.items() if t}
+    _reject_step_level_ids(topics_by_domain)
     folds = make_folds(topics_by_domain, n_folds, seed)
 
     per_fold = []

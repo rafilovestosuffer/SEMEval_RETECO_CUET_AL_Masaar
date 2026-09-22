@@ -212,3 +212,23 @@ def test_cross_validate_surfaces_an_unstable_domain() -> None:
 def test_render_includes_the_per_domain_table() -> None:
     text = cv.render(cv.cross_validate(make_scores({"iota": 10}, 0.3), n_folds=5, iters=100))
     assert "iota" in text and "CI" in text and "sd" in text
+
+
+def test_step_level_ids_are_rejected() -> None:
+    """Folding 1b step ids splits a query across folds — measured at 74.8% on real data."""
+    steps = {"d": {"q1_step1": 0.1, "q1_step2": 0.2, "q2_step1": 0.3, "q2_step2": 0.4}}
+    with pytest.raises(ValueError, match="STEP ids"):
+        cv.cross_validate(steps, n_folds=2, iters=50)
+
+
+def test_query_level_ids_are_accepted() -> None:
+    """The official 1b aggregation gives one value per query, which folds correctly."""
+    queries = {"d": {f"q{i}": 0.1 * i for i in range(10)}}
+    result = cv.cross_validate(queries, n_folds=2, iters=50)
+    assert result["n_folds"] == 2
+
+
+def test_a_single_step_per_query_is_not_flagged() -> None:
+    """One step per query is unambiguous — no parent is ever split, so allow it."""
+    single = {"d": {f"q{i}_step1": 0.1 for i in range(6)}}
+    assert cv.cross_validate(single, n_folds=2, iters=50)["n_folds"] == 2

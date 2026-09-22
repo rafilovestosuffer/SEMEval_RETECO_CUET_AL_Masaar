@@ -162,3 +162,28 @@ def test_read_run_with_scores_round_trips(tmp_path: Path) -> None:
 def test_write_run_creates_missing_parents(tmp_path: Path) -> None:
     path = runs.write_run(tmp_path / "deep" / "nested" / "run.trec", {"q1": [("d1", 1.0)]})
     assert path.is_file()
+
+
+def test_retriever_output_cannot_depend_on_gold(tmp_path) -> None:
+    """§5.4: gold_ids must never reach inference.
+
+    `reteco.data.topics_1a` attaches gold_ids to every Topic for convenience, and the
+    Retriever signature takes those Topics — so a retriever *could* read them. An audit
+    grep proves that no retriever does so today; this proves it stays true. Blanking the
+    gold must not change a single ranking.
+    """
+    import dataclasses
+
+    from reteco.data import Corpus, Topic
+    from submit.make_runs import lexical_overlap_retriever
+
+    corpus = Corpus(doc_ids=["d1", "d2", "d3"],
+                    texts=["alpha beta", "beta gamma", "delta"], domain="t")
+    with_gold = [Topic(topic_id="q1", text="beta", gold_ids=["d1", "d2"], domain="t"),
+                 Topic(topic_id="q2", text="delta", gold_ids=["d3"], domain="t")]
+    without = [dataclasses.replace(t, gold_ids=[]) for t in with_gold]
+
+    assert lexical_overlap_retriever(corpus, with_gold, 10) == \
+        lexical_overlap_retriever(corpus, without, 10), (
+        "retrieval changed when gold was removed — it is reading the labels"
+    )
