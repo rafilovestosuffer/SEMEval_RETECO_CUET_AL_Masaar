@@ -44,7 +44,12 @@ HF_REPO = "DataScience-UIBK/RETECO-SemEval2027"
 KIT_URL = "https://github.com/DataScienceUIBK/RETECO.git"
 KIT_COMMIT = "23093c30e568a337c6293de4c58ffcccddbded5b"  # 2026-08-30
 DOMAIN = "iota"
-MIN_JDK = 11  # pyserini needs a modern JDK; the organizers document 21
+# pyserini's bundled Lucene jars are compiled for Java 21 (class file version 65.0).
+# Measured, not assumed: run 1 of this kernel found Kaggle's default JDK 17 (class file
+# version 61.0) and died with UnsupportedClassVersionError on
+# org/apache/lucene/analysis/Analyzer. 11 was too lenient -- it let 17 pass Stage A and
+# pushed the failure into Stage B where the diagnosis was a Java stack trace.
+MIN_JDK = 21
 
 # starter_kit/BASELINE_RESULTS.md @ 23093c3 -- the ORGANIZERS' published figures.
 PUBLISHED = {"1a_train": 0.0199, "1a_dev": 0.2083, "1b_train": 0.0000, "1b_dev": 0.3289}
@@ -109,20 +114,47 @@ def install_jdk() -> int | None:
     return probe_java()
 
 
-def set_java_home() -> None:
-    """pyserini reads JAVA_HOME / JVM_PATH; derive them if unset."""
-    if not os.environ.get("JAVA_HOME"):
-        exe = shutil.which("java")
-        if exe:
-            home = Path(exe).resolve().parent.parent
-            os.environ["JAVA_HOME"] = str(home)
-            print(f"JAVA_HOME={home}")
-    home = os.environ.get("JAVA_HOME")
-    if home and not os.environ.get("JVM_PATH"):
-        for candidate in Path(home).rglob("libjvm.so"):
-            os.environ["JVM_PATH"] = str(candidate)
-            print(f"JVM_PATH={candidate}")
-            break
+def find_jdk_home(minimum: int = MIN_JDK) -> tuple[int, Path] | None:
+    """Highest installed JDK >= ``minimum`` under /usr/lib/jvm, as ``(major, home)``.
+
+    Deliberately does NOT use ``shutil.which("java")``: apt can install openjdk-21
+    while update-alternatives leaves /usr/bin/java pointing at 17, so the launcher on
+    PATH is not evidence about which JDKs exist. Each candidate is interrogated by
+    running its own ``bin/java -version``.
+    """
+    jvm_root = Path("/usr/lib/jvm")
+    if not jvm_root.is_dir():
+        return None
+    best: tuple[int, Path] | None = None
+    for home in sorted(jvm_root.iterdir()):
+        launcher = home / "bin" / "java"
+        if not launcher.is_file():
+            continue
+        proc = subprocess.run([str(launcher), "-version"], capture_output=True, text=True)
+        match = re.search(r'version "(\d+)(?:\.(\d+))?', proc.stderr or proc.stdout or "")
+        if not match:
+            continue
+        major = int(match.group(1))
+        if major == 1 and match.group(2):  # legacy 1.8 style
+            major = int(match.group(2))
+        if major >= minimum and (best is None or major > best[0]):
+            best = (major, home)
+    return best
+
+
+def activate_jdk(home: Path) -> None:
+    """Point pyserini at ``home``: JAVA_HOME, JVM_PATH, and PATH all agree.
+
+    PATH is prepended too, so any subprocess that resolves ``java`` itself gets this
+    JDK rather than whatever update-alternatives left in /usr/bin.
+    """
+    os.environ["JAVA_HOME"] = str(home)
+    os.environ["PATH"] = f"{home / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}"
+    print(f"JAVA_HOME={home}")
+    for candidate in home.rglob("libjvm.so"):
+        os.environ["JVM_PATH"] = str(candidate)
+        print(f"JVM_PATH={candidate}")
+        break
 
 
 def probe_hf_layout() -> list[str]:
@@ -283,16 +315,21 @@ def gate(results: dict) -> bool:
 
 # ============================================================================ --
 def main() -> int:
-    section("STAGE A.1 — JDK (pyserini needs one; the organizers document 21)")
-    major = probe_java()
-    if major is None or major < MIN_JDK:
-        print(f"need JDK >= {MIN_JDK}, found {major!r}")
-        major = install_jdk()
-        if major is None or major < MIN_JDK:
-            die(f"no usable JDK (found {major!r}). pyserini's Lucene analyzer cannot run, "
-                f"and without it the official numbers are unreachable.")
-    set_java_home()
+    section(f"STAGE A.1 — JDK (pyserini's Lucene jars need {MIN_JDK}+)")
+    report["default_jdk"] = probe_java()  # what's on PATH, for the record
+    found = find_jdk_home()
+    if found is None:
+        print(f"no installed JDK >= {MIN_JDK}; installing one")
+        install_jdk()
+        found = find_jdk_home()
+        if found is None:
+            die(f"no JDK >= {MIN_JDK} available after install. pyserini's Lucene analyzer "
+                f"is compiled for Java {MIN_JDK} (class file version 65.0) and cannot run "
+                f"on an older runtime, so the official numbers are unreachable.")
+    major, home = found
+    activate_jdk(home)
     report["jdk_major"] = major
+    report["java_home"] = str(home)
     print(f"JDK {major} OK")
     save_report()
 
