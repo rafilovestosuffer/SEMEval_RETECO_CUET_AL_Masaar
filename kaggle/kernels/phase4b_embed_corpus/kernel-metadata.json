@@ -1,0 +1,15 @@
+{
+  "id": "USERNAME/reteco-phase4b-embed-corpus",
+  "title": "RETECO phase4b embed corpus",
+  "code_file": "phase4b_embed_corpus.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
