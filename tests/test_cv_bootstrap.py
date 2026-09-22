@@ -73,14 +73,49 @@ def test_bootstrap_on_constant_scores_has_zero_width() -> None:
     assert result["ci_high"] == pytest.approx(0.4)
 
 
-def test_bootstrap_respects_equal_domain_weighting() -> None:
-    """A 1000-topic domain must not outweigh a 10-topic one, in the point estimate or the CI."""
+def test_domain_mode_gives_every_domain_equal_weight() -> None:
+    """mode='domain': a 1000-topic domain must not outweigh a 10-topic one.
+
+    This reproduces the organizers' baseline table (the Phase 1/2 gates), and was the
+    default until 22 Sept 2026, when `evaluation.html` was found to define the leaderboard
+    as a macro over queries instead. It is now opt-in.
+    """
     scores = {
         "big": {f"b{i}": 1.0 for i in range(1000)},
         "small": {f"s{i}": 0.0 for i in range(10)},
     }
-    result = bootstrap.bootstrap_macro(scores, iters=200)
+    result = bootstrap.bootstrap_macro(scores, iters=200, mode="domain")
     assert result["macro"] == pytest.approx(0.5)
+
+
+def test_query_mode_is_the_default_and_weights_by_topic_count() -> None:
+    """mode='query' is the leaderboard metric (CLAUDE.md §4) and must be the default."""
+    scores = {
+        "big": {f"b{i}": 1.0 for i in range(1000)},
+        "small": {f"s{i}": 0.0 for i in range(10)},
+    }
+    assert bootstrap.DEFAULT_MACRO_MODE == "query"
+    result = bootstrap.bootstrap_macro(scores, iters=200)
+    assert result["macro"] == pytest.approx(1000 / 1010)
+    assert result["mode"] == "query"
+
+
+def test_an_unknown_macro_mode_is_rejected() -> None:
+    with pytest.raises(ValueError, match="mode must be"):
+        bootstrap._macro({"a": [1.0]}, mode="per-domain")
+
+
+def test_cross_validate_reports_both_aggregations() -> None:
+    """§4 requires reporting both; a gain can change sign between them."""
+    scores = {
+        "big": {f"b{i}": 1.0 for i in range(100)},
+        "small": {f"s{i}": 0.0 for i in range(10)},
+    }
+    result = cv.cross_validate(scores, n_folds=2, iters=100)
+    assert result["mode"] == "query"
+    assert result["other_mode"] == "domain"
+    assert result["overall_macro"] == pytest.approx(100 / 110)
+    assert result["other_macro"] == pytest.approx(0.5)
 
 
 def test_bootstrap_is_deterministic_for_a_fixed_seed() -> None:

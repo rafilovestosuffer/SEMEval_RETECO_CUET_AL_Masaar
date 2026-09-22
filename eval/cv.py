@@ -5,15 +5,21 @@
 rerank depth K — is made on train folds and nothing else. This module exists so there is never
 a reason to look at dev while tuning.
 
-Two design points follow directly from the metric being a per-domain macro (§4, §6):
+Three design points:
 
+- **Both aggregations are reported, and the query macro is primary** (§4, corrected 22 Sept
+  2026). It is the one that ranks us; the domain macro is kept because it reproduces the
+  organizers' baseline table. On real BM25 train scores they are 0.0944 and 0.0879 — a gap
+  wide enough that a change can look like a gain under one and a loss under the other.
 - **Folds are stratified by domain.** Each fold holds roughly the same *proportion* of every
   domain's topics, so every fold can compute all 13 domain means. Unstratified folds would
   leave small domains absent from some folds, and a domain missing from a fold cannot
-  contribute to that fold's macro — which silently reweights the metric.
+  contribute to that fold's domain macro — which silently reweights it. Stratification is
+  right under either aggregation; only the objective changes.
 - **Per-domain spread is reported, not just the macro.** With ~10 topics, a domain's fold
   scores swing hugely; a macro that looks stable can hide a domain oscillating between 0.0
-  and 0.4.
+  and 0.4. Measured on real data: IOTA has 7 train topics and a fold sd of 0.062 against a
+  mean of 0.028, while History has 561 topics and a sd of 0.013.
 
 Folds are deterministic: the same topic ids and seed always produce the same partition, so a
 comparison run weeks apart is still paired.
@@ -35,7 +41,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from bootstrap import DEFAULT_SEED, bootstrap_macro, paired_bootstrap  # noqa: E402
+from bootstrap import (DEFAULT_MACRO_MODE, DEFAULT_SEED, bootstrap_macro,  # noqa: E402
+                       paired_bootstrap)
 
 __all__ = ["DEFAULT_FOLDS", "make_folds", "fold_scores", "cross_validate"]
 
@@ -80,13 +87,21 @@ def fold_scores(scores: PerDomainTopics, fold: dict[str, list[str]]) -> PerDomai
     return out
 
 
-def _macro(scores: PerDomainTopics) -> float:
-    means = [sum(t.values()) / len(t) for t in scores.values() if t]
-    return sum(means) / len(means) if means else 0.0
+def _macro(scores: PerDomainTopics, mode: str = DEFAULT_MACRO_MODE) -> float:
+    """Fold macro under either aggregation — see `eval.bootstrap._macro`."""
+    groups = [list(t.values()) for t in scores.values() if t]
+    if not groups:
+        return 0.0
+    if mode == "query":
+        flat = [x for g in groups for x in g]
+        return sum(flat) / len(flat)
+    means = [sum(g) / len(g) for g in groups]
+    return sum(means) / len(means)
 
 
 def cross_validate(scores: PerDomainTopics, n_folds: int = DEFAULT_FOLDS,
-                   seed: int = DEFAULT_SEED, iters: int = 10_000) -> dict[str, object]:
+                   seed: int = DEFAULT_SEED, iters: int = 10_000,
+                   mode: str = DEFAULT_MACRO_MODE) -> dict[str, object]:
     """Fold-wise macro, its spread, and a bootstrap CI over all train topics.
 
     The CI comes from `bootstrap_macro` over the full train set rather than from the fold
@@ -102,14 +117,17 @@ def cross_validate(scores: PerDomainTopics, n_folds: int = DEFAULT_FOLDS,
         subset = fold_scores(scores, fold)
         per_fold.append({
             "fold": i,
-            "macro": _macro(subset),
+            "macro": _macro(subset, mode),
+            "macro_other": _macro(subset, "domain" if mode == "query" else "query"),
             "num_topics": sum(len(t) for t in subset.values()),
             "num_domains": len(subset),
             "per_domain": {d: sum(t.values()) / len(t) for d, t in sorted(subset.items())},
         })
 
     macros = [f["macro"] for f in per_fold]
-    overall = bootstrap_macro(scores, iters=iters, seed=seed)
+    overall = bootstrap_macro(scores, iters=iters, seed=seed, mode=mode)
+    other_mode = "domain" if mode == "query" else "query"
+    overall_other = bootstrap_macro(scores, iters=iters, seed=seed, mode=other_mode)
 
     domains = sorted(topics_by_domain)
     domain_spread = {}
@@ -127,6 +145,11 @@ def cross_validate(scores: PerDomainTopics, n_folds: int = DEFAULT_FOLDS,
     return {
         "n_folds": n_folds,
         "seed": seed,
+        "mode": mode,
+        "other_mode": other_mode,
+        "other_macro": overall_other["macro"],
+        "other_ci_low": overall_other["ci_low"],
+        "other_ci_high": overall_other["ci_high"],
         "fold_macros": macros,
         "fold_macro_mean": statistics.fmean(macros) if macros else 0.0,
         "fold_macro_stdev": statistics.stdev(macros) if len(macros) > 1 else 0.0,
@@ -138,12 +161,21 @@ def cross_validate(scores: PerDomainTopics, n_folds: int = DEFAULT_FOLDS,
     }
 
 
+def _macro_line(mode: str, macro: float, low: float, high: float) -> str:
+    """One macro row. The query macro is marked, since it is the one that ranks us (§4)."""
+    marker = "  <- optimise this" if mode == "query" else ""
+    return (f"  {mode + '-macro':<14} {macro:.4f}  "
+            f"95% CI [{low:.4f}, {high:.4f}]{marker}")
+
+
 def render(result: dict) -> str:
     lines = [
         f"{result['n_folds']}-fold CV, stratified by domain (seed {result['seed']})",
         "",
-        f"  overall macro {result['overall_macro']:.4f}  "
-        f"95% CI [{result['ci_low']:.4f}, {result['ci_high']:.4f}]",
+        _macro_line(result["mode"], result["overall_macro"],
+                    result["ci_low"], result["ci_high"]),
+        _macro_line(result["other_mode"], result["other_macro"],
+                    result["other_ci_low"], result["other_ci_high"]),
         f"  fold macros   {', '.join(f'{m:.4f}' for m in result['fold_macros'])}",
         f"  fold spread   mean {result['fold_macro_mean']:.4f}  "
         f"sd {result['fold_macro_stdev']:.4f}",
@@ -171,11 +203,13 @@ def main() -> int:
                         help="second scores file; runs a paired bootstrap against it")
     parser.add_argument("--folds", type=int, default=DEFAULT_FOLDS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument("--mode", choices=("query", "domain"), default=DEFAULT_MACRO_MODE,
+                        help="primary aggregation; 'query' is the leaderboard metric (§4)")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
 
     scores = json.loads(args.scores.read_text(encoding="utf-8"))
-    result = cross_validate(scores, args.folds, args.seed)
+    result = cross_validate(scores, args.folds, args.seed, mode=args.mode)
 
     if args.json:
         print(json.dumps(result, indent=2))
@@ -184,7 +218,7 @@ def main() -> int:
 
     if args.compare:
         other = json.loads(args.compare.read_text(encoding="utf-8"))
-        paired = paired_bootstrap(scores, other, seed=args.seed)
+        paired = paired_bootstrap(scores, other, seed=args.seed, mode=args.mode)
         verdict = "SIGNIFICANT" if paired["significant"] else "not significant"
         print(f"\npaired vs {args.compare.name}: delta {paired['delta']:+.4f}  "
               f"95% CI [{paired['ci_low']:+.4f}, {paired['ci_high']:+.4f}]  -> {verdict}")

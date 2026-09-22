@@ -4,17 +4,23 @@
 CLAUDE.md §9 Phase 3 wants "bootstrap 95% CI, paired comparison vs. previous best", and §5
 forbids reporting a gain that is inside the noise. Two things make this non-obvious here:
 
-1. **The statistic is the two-level macro**, so a resample has to respect domain structure.
-   Resampling topics globally would let a big domain swamp the interval, which is exactly the
-   weighting the official metric rejects. `bootstrap_macro` resamples topics *within* each
-   domain, recomputes each domain mean, then takes the equal-weight macro.
+1. **There are two aggregations** (CLAUDE.md §4, corrected 22 Sept 2026). `mode="query"` pools
+   all topics — the leaderboard metric, and the default here. `mode="domain"` is the
+   equal-weight mean over domains that the organizers' baseline table reports. Resampling is
+   always done *within* each domain either way, which preserves the domain structure of the
+   data; only the aggregation of the resample differs.
 2. **Comparisons must be paired.** Two systems are scored on the same topics, so the paired
    difference has far lower variance than the two intervals do. Overlapping CIs do **not**
    imply no significant difference — use `paired_bootstrap`, not eyeballed error bars.
 
-With ~10 topics in a domain like IOTA the interval will be very wide, and that is the honest
-answer (§6). A per-domain CI is reported alongside the macro so a tiny domain cannot quietly
-drive a conclusion.
+The mode changes the interval a lot, not just the point estimate. On real BM25 train scores the
+domain-macro CI is roughly [0.0735, 0.1042] — width 0.031 on a value of 0.088 — because tiny,
+wildly-varying domains like IOTA (7 topics) carry 1/13 of the weight. Under the query macro the
+same data gives a far tighter interval, because History's 561 topics dominate and are stable.
+Using the domain-macro CI to judge a leaderboard gain would reject real improvements as noise.
+
+A per-domain CI is reported alongside the macro under both modes, so a tiny domain cannot
+quietly drive a conclusion (§6).
 
 Seeds are fixed (§11): the same inputs always give the same interval.
 """
@@ -29,21 +35,43 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-__all__ = ["DEFAULT_SEED", "DEFAULT_ITERS", "bootstrap_macro", "paired_bootstrap",
-           "percentile_ci"]
+__all__ = ["DEFAULT_SEED", "DEFAULT_ITERS", "DEFAULT_MACRO_MODE", "bootstrap_macro",
+           "paired_bootstrap", "percentile_ci"]
 
 DEFAULT_SEED = 20260916
 DEFAULT_ITERS = 10_000
 DEFAULT_ALPHA = 0.05
 
+# The leaderboard aggregates over queries (CLAUDE.md §4), so that is the default here.
+# "domain" reproduces the organizers' baseline table and is what the Phase 1/2 gates check.
+DEFAULT_MACRO_MODE = "query"
+
 # {domain: {topic_id: score}}
 PerDomainTopics = dict[str, dict[str, float]]
 
 
-def _macro(per_domain: dict[str, list[float]]) -> float:
-    """Equal-weight mean of per-domain means. Domains with no topics are skipped."""
-    means = [sum(v) / len(v) for v in per_domain.values() if v]
-    return sum(means) / len(means) if means else 0.0
+def _macro(per_domain: dict[str, list[float]],
+           mode: str = DEFAULT_MACRO_MODE) -> float:
+    """Aggregate per-domain topic scores into one number.
+
+    ``mode="query"`` pools every topic and takes one flat mean — **the leaderboard metric**
+    (CLAUDE.md §4). ``mode="domain"`` takes the equal-weight mean of per-domain means, which
+    is what the organizers' baseline table reports and what the Phase 1/2 gates reproduce.
+
+    They are far apart here: History holds 561 of the 1,211 train queries, so it is ~46% of
+    the query macro and 1/13 of the domain macro. Domains with no topics are skipped under
+    both modes rather than counted as zero.
+    """
+    groups = [v for v in per_domain.values() if v]
+    if not groups:
+        return 0.0
+    if mode == "query":
+        flat = [x for group in groups for x in group]
+        return sum(flat) / len(flat)
+    if mode != "domain":
+        raise ValueError(f"mode must be 'query' or 'domain', got {mode!r}")
+    means = [sum(v) / len(v) for v in groups]
+    return sum(means) / len(means)
 
 
 def percentile_ci(values: list[float], alpha: float = DEFAULT_ALPHA) -> tuple[float, float]:
@@ -58,7 +86,8 @@ def percentile_ci(values: list[float], alpha: float = DEFAULT_ALPHA) -> tuple[fl
 
 def bootstrap_macro(scores: PerDomainTopics, iters: int = DEFAULT_ITERS,
                     alpha: float = DEFAULT_ALPHA,
-                    seed: int = DEFAULT_SEED) -> dict[str, object]:
+                    seed: int = DEFAULT_SEED,
+                    mode: str = DEFAULT_MACRO_MODE) -> dict[str, object]:
     """CI for the macro, resampling topics **within** each domain.
 
     Args:
@@ -72,7 +101,7 @@ def bootstrap_macro(scores: PerDomainTopics, iters: int = DEFAULT_ITERS,
     if not by_domain:
         return {"macro": 0.0, "ci_low": 0.0, "ci_high": 0.0, "iters": 0, "per_domain": {}}
 
-    point = _macro(by_domain)
+    point = _macro(by_domain, mode)
 
     macro_samples: list[float] = []
     domain_samples: dict[str, list[float]] = {d: [] for d in by_domain}
@@ -83,7 +112,7 @@ def bootstrap_macro(scores: PerDomainTopics, iters: int = DEFAULT_ITERS,
         }
         for d, values in resampled.items():
             domain_samples[d].append(sum(values) / len(values))
-        macro_samples.append(_macro(resampled))
+        macro_samples.append(_macro(resampled, mode))
 
     low, high = percentile_ci(macro_samples, alpha)
     return {
@@ -92,6 +121,7 @@ def bootstrap_macro(scores: PerDomainTopics, iters: int = DEFAULT_ITERS,
         "ci_high": high,
         "iters": iters,
         "seed": seed,
+        "mode": mode,
         "per_domain": {
             d: {
                 "score": sum(values) / len(values),
@@ -106,7 +136,8 @@ def bootstrap_macro(scores: PerDomainTopics, iters: int = DEFAULT_ITERS,
 
 def paired_bootstrap(a: PerDomainTopics, b: PerDomainTopics,
                      iters: int = DEFAULT_ITERS, alpha: float = DEFAULT_ALPHA,
-                     seed: int = DEFAULT_SEED) -> dict[str, object]:
+                     seed: int = DEFAULT_SEED,
+                     mode: str = DEFAULT_MACRO_MODE) -> dict[str, object]:
     """Paired CI for ``macro(a) - macro(b)`` over the topics both systems scored.
 
     Resamples *topic ids* within each domain and evaluates both systems on the same draw, so
@@ -127,7 +158,7 @@ def paired_bootstrap(a: PerDomainTopics, b: PerDomainTopics,
                 "num_topics": 0}
 
     def macro_of(system: PerDomainTopics, picks: dict[str, list[str]]) -> float:
-        return _macro({d: [system[d][t] for t in ids] for d, ids in picks.items()})
+        return _macro({d: [system[d][t] for t in ids] for d, ids in picks.items()}, mode)
 
     point = macro_of(a, shared) - macro_of(b, shared)
 
@@ -146,6 +177,7 @@ def paired_bootstrap(a: PerDomainTopics, b: PerDomainTopics,
         "num_domains": len(shared),
         "iters": iters,
         "seed": seed,
+        "mode": mode,
     }
 
 

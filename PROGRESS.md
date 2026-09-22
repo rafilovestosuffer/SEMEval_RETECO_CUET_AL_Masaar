@@ -10,6 +10,10 @@ Last updated: 2026-09-22
 
 ## Current phase
 
+**Phase 3 — PASSED 2026-09-22.** The validation harness reproduces BM25 on real data, reports
+fold variance and bootstrap CIs under both aggregations, and its paired test is calibrated
+(null straddles zero across three seeds; detects a gain from improving 0.5% of queries).
+
 **Phase 2 — PASSED 2026-09-22.** Full Track 1 BM25 reproduction matches the organizers' published
 table on **all 13 domains × 4 cells and all four macros**, to 4 dp. `notes/data_audit.md` written.
 83 minutes of CPU, zero GPU quota spent to date across the whole project.
@@ -36,18 +40,44 @@ Every per-domain cell matched too (52/52 counted). Verified by the kernel and in
 `eval/gate.py --all` (exit 0). The left column reproduces the organizers' table; **the right
 column is what ranks us** (§4) and is what the ledger records as `macro_ndcg10`.
 
+## The number that should drive Phase 4
+
+**BM25 recall@100 on 1a train is 0.2681, and 56.6% of queries have ZERO gold in the top 100.**
+77.7% score nDCG@10 = 0.0 outright. Two consequences, both hard:
+
+- **A reranker over a BM25 top-100 cannot exceed ~0.27**, and for more than half of all queries
+  it can achieve *nothing*, because there is no gold document in the pool to promote. This is our
+  own measurement of the ceiling the deep-research pass warned about, and it independently
+  supports the "do not spend GPU on reranking" conclusion (`reports/Temporal retrieval research
+  gaps.md` §4).
+- **First-stage recall is the whole game.** Per domain the ceiling is worst exactly where it costs
+  most: History is 46% of the query macro and has recall@100 of **0.199**. Politics (0.581) and
+  IOTA (0.083) bracket the range.
+
+| domain | recall@100 | | domain | recall@100 |
+|---|---:|---|---|---:|
+| politics | 0.581 | | travel | 0.209 |
+| cardano | 0.463 | | **history** | **0.199** |
+| hsm | 0.452 | | economics | 0.194 |
+| law | 0.327 | | bitcoin | 0.164 |
+| genealogy | 0.317 | | quant | 0.139 |
+| workplace | 0.297 | | monero | 0.132 |
+| | | | iota | 0.083 |
+
+Caveat: the Phase 2 run files truncate at top-100, so recall@1000 — the ceiling for a deeper
+rerank — **cannot** be computed from them and remains unmeasured.
+
 ## Next step (the ONE step)
 
-**Phase 3 — validation harness on real data.** `eval/cv.py` and `eval/bootstrap.py` exist and are
-unit-tested on synthetic fixtures only. Phase 2 supplies the real per-domain topic counts they
-need, so the step is: produce per-topic BM25 scores for the train split, run 5-fold
-domain-stratified CV, and confirm the harness reproduces the Phase 2 train numbers with fold
-variance and bootstrap CIs reported.
-
-Two changes to make first, both consequences of findings below:
-1. The harness must report **both** aggregations, and treat the query-macro as primary.
-2. Folds stay stratified by domain (that is right under either metric), but the objective they
-   optimise is the query-macro, so History's 561 train queries dominate by design.
+**Phase 4 — first-stage retrieval.** Everything above says this is where the score is. Before any
+GPU run, the open questions from the research pass must be settled in this order:
+1. **Throughput probe.** A timed 1,000-document embedding run on a T4 to convert the estimated
+   115–150 GPU-hours for 1.65M docs into a measured number. 30 GPU-h/week makes this decisive.
+2. **Deduplicate first.** 29.4% of the corpus is byte-identical duplicate text, so embedding
+   unique content hashes cuts the dominant cost by that much before any other optimisation.
+3. **Model choice.** ReasonEmbed-4B (BRIGHT 37.1) vs Diver-Retriever-4B-1020 (31.9) — but
+   ReasonEmbed has no published TEMPO number, and BRIGHT rank does not transfer cleanly to TEMPO
+   (E5/SFR rank 2nd/3rd there while being mid-tier on BRIGHT).
 
 ---
 
@@ -171,7 +201,8 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
       `fa495d3`; verified by the kernel and independently by `eval/gate.py`)*
 - [x] **Phase 2** — full Track 1 BM25 reproduction + `notes/data_audit.md` *(PASSED 2026-09-22,
       commit `6e2e1b7`; 52/52 per-domain cells and all four macros match to 4 dp)*
-- [ ] **Phase 3** — CV harness reproduces BM25, fold variance reported
+- [x] **Phase 3** — CV harness reproduces BM25, fold variance reported *(PASSED 2026-09-22; both
+      aggregations reported, paired test calibrated against a shuffle null)*
 - [ ] **Phase 4** — first-stage config picked on train CV only
 - [ ] **Phase 5** — H2 (step fusion) answered with CI
 - [ ] **Phase 6** — query rewriting gain > CI width, cost acceptable
