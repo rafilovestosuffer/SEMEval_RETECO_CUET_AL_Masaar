@@ -1,0 +1,15 @@
+{
+  "id": "USERNAME/reteco-phase4c-dense-search",
+  "title": "RETECO phase4c dense search",
+  "code_file": "phase4c_dense_search.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": ["rafiurrahman01/reteco-phase4b-embed-corpus"],
+  "model_sources": []
+}

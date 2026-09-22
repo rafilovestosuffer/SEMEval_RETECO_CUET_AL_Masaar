@@ -143,3 +143,37 @@ def test_query_prompt_matches_the_model_card() -> None:
     """Documents are embedded with no prefix; only queries carry this one."""
     assert QUERY_PROMPT.startswith("Instruct:")
     assert QUERY_PROMPT.endswith("Query:")
+
+
+def test_stable_argsort_matches_rank_documents() -> None:
+    """The fast path in `search` must be identical to the official tie-break.
+
+    `reteco.runs.rank_documents` uses Python's stable `sorted(..., reverse=True)`, which
+    keeps equal-scoring documents in corpus order. `np.argsort(-scores, kind="stable")`
+    must agree exactly — including under heavy ties, which is the realistic case here
+    because every duplicate group is an exact tie.
+    """
+    from reteco.runs import rank_documents
+
+    rng = np.random.default_rng(7)
+    for trial in range(20):
+        n = int(rng.integers(5, 200))
+        # Few distinct values => many ties, which is what duplicates produce.
+        scores = rng.integers(0, 4, size=n).astype(np.float64)
+        doc_ids = [f"doc{i:04d}" for i in range(n)]
+
+        expected = rank_documents(doc_ids, scores.tolist(), top_k=25)
+        order = np.argsort(-scores, kind="stable")[:25]
+        actual = [(doc_ids[j], float(scores[j])) for j in order]
+        assert actual == expected, f"diverged on trial {trial} with n={n}"
+
+
+def test_search_preserves_tie_order_at_scale(tmp_path) -> None:
+    """Many identical documents must come back in corpus order, not argsort order."""
+    vecs = unit([[1.0, 0.0], [0.0, 1.0]])
+    n = 500
+    doc_ids = [f"d{i:04d}" for i in range(n)]
+    rows = [0] * n                      # every document identical -> one big exact tie
+    d = write_domain(tmp_path, vecs, doc_ids, rows)
+    ranked = search(load_domain(d), unit([[1.0, 0.0]]), ["q"], top_k=n)
+    assert [doc for doc, _ in ranked["q"]] == doc_ids

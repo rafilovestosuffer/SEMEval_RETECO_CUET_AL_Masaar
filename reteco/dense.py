@@ -13,8 +13,9 @@ Two details that decide whether this matches the official baseline's behaviour:
   here; a vector that is not unit-norm indicates a corrupt shard and is worth catching.
 - **Ties break by corpus order.** Duplicate documents get *identical* scores by
   construction, so ties are common here in a way they never were for BM25 — every
-  duplicate group is an exact tie. `reteco.runs.rank_documents` reproduces the organizers'
-  stable sort, so ranking goes through it rather than being re-implemented.
+  duplicate group is an exact tie. Ranking therefore reproduces the organizers' stable
+  sort exactly — `np.argsort(-scores, kind="stable")`, pinned against
+  `reteco.runs.rank_documents` by a randomised test rather than assumed equivalent.
 
 Queries must be encoded with the model's **query prompt** and documents without it; see
 `QUERY_PROMPT`. Getting that backwards puts the two sides in different regions of the
@@ -29,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
-from reteco.runs import TOP_K, rank_documents
+from reteco.runs import TOP_K
 
 __all__ = ["QUERY_PROMPT", "DomainIndex", "load_domain", "search", "search_all"]
 
@@ -119,7 +120,7 @@ def search(index: DomainIndex, query_vectors: np.ndarray, query_ids: list[str],
 
     Returns:
         ``{query_id: [(doc_id, score), ...]}``, at most ``top_k`` per query, ties broken
-        by corpus order via `reteco.runs.rank_documents`.
+        by corpus order (see the note in the body).
     """
     if len(query_ids) != query_vectors.shape[0]:
         raise ValueError(f"{len(query_ids)} query ids but "
@@ -132,13 +133,20 @@ def search(index: DomainIndex, query_vectors: np.ndarray, query_ids: list[str],
     norms = np.linalg.norm(queries, axis=1, keepdims=True)
     queries = queries / np.maximum(norms, 1e-12)
 
+    doc_ids = index.doc_ids
     out: dict[str, list[tuple[str, float]]] = {}
     for start in range(0, len(query_ids), block):
         chunk = queries[start:start + block]
         sims = chunk @ index.vectors.T              # [b, n_unique]
         per_doc = sims[:, index.rows]               # [b, n_docs] — duplicates share a score
         for i, qid in enumerate(query_ids[start:start + block]):
-            out[qid] = rank_documents(index.doc_ids, per_doc[i].tolist(), top_k=top_k)
+            scores = per_doc[i]
+            # `kind="stable"` on the negated scores is exactly `rank_documents`: descending
+            # by score, ties left in corpus order. Done in C because a pure-Python sort of
+            # History's 356k documents, 561 times over, is minutes rather than seconds.
+            # `test_stable_argsort_matches_rank_documents` pins the equivalence.
+            order = np.argsort(-scores, kind="stable")[:top_k]
+            out[qid] = [(doc_ids[j], float(scores[j])) for j in order]
     return out
 
 
