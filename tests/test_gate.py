@@ -77,11 +77,31 @@ def test_difference_that_still_rounds_to_the_published_value_passes() -> None:
 
 
 def test_tolerance_is_a_half_ulp_not_a_full_one() -> None:
-    """Guards the bug this suite caught: 1e-4 with <= would let 0.0200 match 0.0199."""
-    assert gate.DEFAULT_TOLERANCE == 5e-5
+    """Guards the bug this suite caught: 1e-4 with <= would let 0.0200 match 0.0199.
+
+    The constant moved 5e-5 -> 5.5e-5 on 2026-09-22 (see `gate.DEFAULT_TOLERANCE`): both
+    sides are rounded, results.json at 5 dp and the published figure at 4, so the worst
+    honest disagreement is 5e-6 + 5e-5. The property this test actually protects is
+    unchanged — a full unit in the 4th decimal must still fail.
+    """
+    assert gate.DEFAULT_TOLERANCE == 5.5e-5
     payload = iota_exact()
     payload["1a_train"]["NDCG@10"] = 0.0199 + 6e-5  # 0.01996 -> rounds to 0.0200
     assert gate.verdict(gate.compare(payload)) is False
+
+
+def test_exact_half_ulp_delta_passes_regardless_of_float_representation() -> None:
+    """Regression for Phase 2: a 5.000e-05 delta must not be decided by binary noise.
+
+    That run produced five cells at exactly that delta. Under the old strict `< 5e-5`,
+    four passed and one (quant 1a_train, 0.02555 vs 0.0255) failed, purely because one
+    subtraction lands at 4.9999999999998934e-05 and another at 5.000000000000005e-05.
+    """
+    for published, observed in ((0.0255, 0.02555), (0.2550, 0.25495),
+                                (0.0846, 0.08455), (0.1003, 0.10035)):
+        row = gate.GateRow("1a_train", published, observed,
+                           gate.DEFAULT_TOLERANCE, counts=True)
+        assert row.matched, f"{observed} vs {published} should match at 4 dp"
 
 
 def test_missing_key_is_reported_and_fails() -> None:

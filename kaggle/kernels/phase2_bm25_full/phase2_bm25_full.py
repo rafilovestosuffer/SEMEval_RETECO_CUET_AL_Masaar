@@ -239,15 +239,27 @@ def audit_guidance(domain_dir: Path, split: str) -> dict:
         if sample is None:
             sample = {k: (v if not isinstance(v, (list, dict)) else type(v).__name__)
                       for k, v in record.items()}
-        for key, value in record.items():
-            keys[key] += 1
-            value_kinds.setdefault(key, Counter())[type(value).__name__] += 1
-            if isinstance(value, str) and len(value) <= 40:
-                small_values.setdefault(key, Counter())[value] += 1
-            elif isinstance(value, list) and all(
-                    isinstance(x, str) and len(x) <= 40 for x in value):
-                for item in value:
-                    small_values.setdefault(key, Counter())[item] += 1
+        # Walk nested dicts, not just the top level. The 22 Sept run missed
+        # query_guidance.temporal_reasoning_class_primary -- the field that answers H6 --
+        # because it sits one level inside a dict and only top-level fields were expanded.
+        # An audit that reports an absence is only as good as the shape it expected.
+        def visit(obj, prefix: str = "") -> None:
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    path = f"{prefix}.{k}" if prefix else k
+                    keys[path] += 1
+                    value_kinds.setdefault(path, Counter())[type(v).__name__] += 1
+                    visit(v, path)
+            elif isinstance(obj, list):
+                for item in obj:
+                    if isinstance(item, (dict, list)):
+                        visit(item, prefix)
+                    elif isinstance(item, str) and len(item) <= 60:
+                        small_values.setdefault(prefix, Counter())[item] += 1
+            elif isinstance(obj, (str, bool)) and len(str(obj)) <= 60:
+                small_values.setdefault(prefix, Counter())[str(obj)] += 1
+
+        visit(record)
         blob = json.dumps(record)
         for token in REASONING_CLASSES:
             if re.search(rf"\b{token}\b", blob):

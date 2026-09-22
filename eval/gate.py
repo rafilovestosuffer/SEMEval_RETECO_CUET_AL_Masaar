@@ -59,11 +59,24 @@ PUBLISHED_MACRO = {"1a_train": 0.0879, "1a_dev": 0.0967, "1b_train": 0.0852, "1b
 # Only keys whose published value is non-zero count toward the verdict.
 NDCG_KEY = "NDCG@10"
 
-# CLAUDE.md §9 asks for a match "to 4 decimals". The published figures are already
-# rounded to 4 dp, so the correct test is that the observed value ROUNDS to the
-# published one -- i.e. a strict half-ulp bound. A tolerance of 1e-4 would be wrong:
-# it admits a full unit in the 4th decimal, letting 0.0200 "match" 0.0199.
-DEFAULT_TOLERANCE = 5e-5
+# CLAUDE.md §9 asks for a match "to 4 decimals", so the bound is a half-ulp, not 1e-4 --
+# 1e-4 would admit a full unit in the 4th decimal and let 0.0200 "match" 0.0199.
+#
+# But a half-ulp of the PUBLISHED value alone is too tight, because BOTH sides are
+# rounded. `official_baseline.py` writes results.json at 5 dp, so the observed value is
+# already within 5e-6 of the true score before any comparison happens, while the
+# published figure is within 5e-5 of it. The worst case is therefore 5.5e-5:
+#
+#     |observed - published| <= |observed - true| + |true - published|
+#                            <=        5e-6       +        5e-5        = 5.5e-5
+#
+# Corrected 22 Sept 2026 from a strict 5e-5, which was measurably wrong. Phase 2's run
+# produced FIVE cells whose delta was exactly 5.000e-05; four passed and one (quant
+# 1a_train, 0.02555 vs 0.0255) failed, because in binary one difference lands at
+# 4.9999999999998934e-05 and the other at 5.000000000000005e-05. The verdict was being
+# decided by float representation noise. 5.5e-5 still rejects a genuine 4th-decimal
+# error, which is what the gate is actually for.
+DEFAULT_TOLERANCE = 5.5e-5
 
 
 def load_bearing(domain: str) -> list[str]:
@@ -304,7 +317,7 @@ def main() -> int:
 
     if args.all:
         root = args.results_dir or (cache_root() / "kernel_output"
-                                    / "reteco-phase2-bm25-full" / "baseline_out")
+                                    / "reteco-phase2-bm25-full-track1" / "baseline_out")
         results = load_results_tree(root)
         if not results:
             print(f"no per-domain results.json under {root}\n\n"

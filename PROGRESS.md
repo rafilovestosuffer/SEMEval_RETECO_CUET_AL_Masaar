@@ -10,43 +10,44 @@ Last updated: 2026-09-22
 
 ## Current phase
 
-**Phase 1 — PASSED 2026-09-22.** The IOTA BM25 reproduction matches the organizers' published
-figures to 4 dp on all three load-bearing rows. The toolchain is now proven end to end on real
-data: HF download → starter kit at the pinned commit → `official_baseline.py` → our gate.
+**Phase 2 — PASSED 2026-09-22.** Full Track 1 BM25 reproduction matches the organizers' published
+table on **all 13 domains × 4 cells and all four macros**, to 4 dp. `notes/data_audit.md` written.
+83 minutes of CPU, zero GPU quota spent to date across the whole project.
 
-Phase 2 (full Track 1 reproduction + data audit) has not started.
+Phase 3 (validation harness on real data) has not started.
 
-The `reteco/` core modules, the Phase 3 harness and the Phase 8 submission path remain **tested
-in isolation only** — see *Built but unverified* below. Phase 1 validated the organizers' code
-path, not ours; the one piece of ours it did corroborate is `restrict_to_corpus` (see below).
+The `reteco/` core modules, the Phase 3 harness and the Phase 8 submission path are still **tested
+in isolation only**. Phases 1–2 validated the *organizers'* code path, not ours. Note that
+`restrict_to_corpus` is now known to be a **no-op** on this data (zero unreachable gold anywhere),
+so it remains unexercised rather than validated — see the retraction below.
 
 ## Last verified result
 
-**Phase 1 gate, IOTA, commit `fa495d3`** — ledger rows `phase1_bm25_iota_r2`:
+**Phase 2 gate, all 13 domains, commit `6e2e1b7`** — ledger rows `phase2_bm25_full_r1`:
 
-| key | published | observed | topics | counts |
-|---|---|---|---|---|
-| 1a train | 0.0199 | **0.0199** | 7 | yes |
-| 1a dev | 0.2083 | **0.2083** | 3 | yes |
-| 1b dev | 0.3289 | **0.3289** | 8 | yes |
-| 1b train | 0.0000 | 0.0000 | 16 | abstains |
+| | domain-macro (the gate) | query-macro (**the leaderboard**) | delta |
+|---|---:|---:|---:|
+| 1a train | 0.0879 ✓ | 0.0944 | +0.0066 |
+| 1a dev | 0.0967 ✓ | 0.1055 | +0.0088 |
+| 1b train | 0.0852 ✓ | 0.0910 | +0.0059 |
+| 1b dev | 0.1063 ✓ | 0.1152 | +0.0088 |
 
-Verified twice: by the kernel and independently by `eval/gate.py` (exit 0). 22.4 s on a Kaggle
-CPU kernel, **zero GPU quota**. These are single-domain IOTA numbers, not the 13-domain macro,
-and 1a dev is 3 topics — wiring evidence, not performance evidence. Do not quote them as a
-system result.
+Every per-domain cell matched too (52/52 counted). Verified by the kernel and independently by
+`eval/gate.py --all` (exit 0). The left column reproduces the organizers' table; **the right
+column is what ranks us** (§4) and is what the ledger records as `macro_ndcg10`.
 
 ## Next step (the ONE step)
 
-**Phase 2 — full Track 1 BM25 reproduction + data audit.** Same kernel shape, all 13 domains
-instead of one; gate is the published macro (1a train 0.0879, 1a dev 0.0967, 1b train 0.0852,
-1b dev 0.1063) and `notes/data_audit.md`.
+**Phase 3 — validation harness on real data.** `eval/cv.py` and `eval/bootstrap.py` exist and are
+unit-tested on synthetic fixtures only. Phase 2 supplies the real per-domain topic counts they
+need, so the step is: produce per-topic BM25 scores for the train split, run 5-fold
+domain-stratified CV, and confirm the harness reproduces the Phase 2 train numbers with fold
+variance and bootstrap CIs reported.
 
-Estimate before proposing the run: IOTA is 10,372 docs and indexed in ~22 s, so 1.65 M docs is
-roughly 1 h of CPU indexing, plus download. Still zero GPU. The audit questions are already
-listed in `notes/lit/SUMMARY.md` — above all **whether `guidance_*.jsonl` carries TEMPO's
-reasoning-class labels (TCP, HAC, CAU…)**, which would make a per-reasoning-class breakdown a
-stronger paper axis than per-domain, and answers H6.
+Two changes to make first, both consequences of findings below:
+1. The harness must report **both** aggregations, and treat the query-macro as primary.
+2. Folds stay stratified by domain (that is right under either metric), but the objective they
+   optimise is the query-macro, so History's 561 train queries dominate by design.
 
 ---
 
@@ -57,12 +58,12 @@ stronger paper axis than per-domain, and answers H6.
 | 2026-09-16 | Repo skeleton, `CLAUDE.md`, ledger, Kaggle control scripts committed | commit `71c9720` |
 | 2026-09-16 | Kaggle / HuggingFace / RETECO docs site all unreachable from a Claude Code web session | 403 CONNECT; HF blocked even over the git proxy (`git ls-remote` on `tempo26/Tempo`) |
 | 2026-09-16 | The RETECO **GitHub** repo *is* reachable via the git proxy | cloned at `23093c3`; starter kit read directly |
-| 2026-09-16 | **Official metric is macro-averaged over the 13 domains, not over topics** | `BASELINE_RESULTS.md` prose + `official_baseline.py` aggregation; the 13 per-domain 1a-train values average to 0.08785 → published 0.0879. CLAUDE.md §4/§6 corrected |
+| 2026-09-16 | ~~Official metric is macro-averaged over the 13 domains~~ **SUPERSEDED 2026-09-22** — that is how the organizers aggregate their own *baseline table*; `evaluation.html` says the **leaderboard** macro-averages over *queries*. Both verified from primary sources; see the reopened blocker below | `BASELINE_RESULTS.md` + `official_baseline.py:259` vs `evaluation.html` |
 | 2026-09-16 | The official stack (pyserini Lucene + gensim `LuceneBM25Model` + `pytrec_eval`) runs end to end under JDK 21 | `official_baseline.py` exit 0 on a synthetic fixture; its runs pass the organizers' `format_checker.py` (800 lines, 8 topics, 0 errors) |
 | 2026-09-16 | `eval/gate.py` reads real `official_baseline.py` output and returns the right verdict | 48 tests pass; correct FAIL on the fixture |
 | 2026-09-16 | **Phase 0 literature done** — TEMPO, RECOR, ReasonIR, DIVER read directly; arXiv ids for TEMPO (2601.09523) and RECOR (2601.05461) verified | `notes/lit/*.md` + `SUMMARY.md` |
 | 2026-09-16 | H1 confirmed from the source paper: dense/reasoning retrieval is ~3× BM25 on TEMPO (10.8 → 22–32 macro nDCG@10) | TEMPO Table 3, `notes/lit/tempo.md` |
-| 2026-09-16 | H2 is **untested in the literature** — TEMPO compares 1b query *constructions*, never fuses step rankings into 1a | TEMPO Fig 6, `notes/lit/SUMMARY.md` |
+| 2026-09-16 | ~~H2 is untested in the literature~~ **FALSIFIED 2026-09-22** by a deep-research pass: sub-query rank fusion is published — MMLF (Findings of NAACL 2025) and ReDI (arXiv 2509.06544), which already ran the sum/max/RRF ablation. A stage-aware study (arXiv 2606.08577) further argues decomposition *harms* first-stage retrieval. H2 must be reframed | `reports/Temporal retrieval research gaps.md` §2 |
 
 | 2026-09-16 | BRIGHT read directly (2407.12883v4, ICLR 2025); the 12.2-point CoT figure confirmed at source | `notes/lit/bright.md` |
 | 2026-09-16 | **Correction to our own Phase 0 output**: MS MARCO cross-encoders *hurt* on reasoning retrieval (BM25 14.3 → 8.3 at k=100). `SUMMARY.md` had ranked this +4–7 at #4; now demoted to last and flagged presumed-harmful | BRIGHT Table 3 |
@@ -72,11 +73,18 @@ stronger paper axis than per-domain, and answers H6.
 | 2026-09-22 | HF dataset layout is exactly `track1_tempo/<domain>/*` as assumed; 201 files (track1 143, track2 55). `split_manifest.json` is **top-level**, not per-domain | kernel Stage A.2 file listing |
 | 2026-09-22 | **Kaggle ships JDK 17; pyserini's Lucene jars need 21** (class file version 65.0 vs 61.0). Kernel now installs and explicitly selects 21 | run 1 `UnsupportedClassVersionError`; fixed in `fa495d3` |
 | 2026-09-22 | IOTA is **7 train + 3 dev** queries (10 total, as §6 said) and 16 train / 8 dev steps | `num_topics` in the baseline output — closes the open question in `notes/lit/SUMMARY.md` |
-| 2026-09-22 | `restrict_to_corpus` semantics corroborated against the organizers' own output: 1a train scores over 7 topics, not 10 | `num_topics=7`; our `reteco/data.py` drops the same topics |
+| 2026-09-22 | ~~`restrict_to_corpus` semantics corroborated~~ **RETRACTED same day** — `num_topics=7` is just IOTA's train split size (7 train / 3 dev), not a drop. Phase 2 found **zero** unreachable gold ids in all of Track 1, so `restrict_to_corpus` is a no-op on this data and remains **unexercised** | `notes/data_audit.md` §4 |
+| 2026-09-22 | **Phase 2 gate PASSED** — all 13 domains × 4 sub-track/split cells and all four macros match `BASELINE_RESULTS.md` @23093c3 to 4 dp | `eval/gate.py --all` exit 0; ledger `phase2_bm25_full_r1`; 83 min CPU, zero GPU |
+| 2026-09-22 | Corpus is **1,654,055 docs / 4.44 GB**; splits match the official table exactly (1a 1211/519, 1b 2762/1214) | `cache/p2/data_audit.json` |
+| 2026-09-22 | **29.4% of the corpus is byte-identical duplicate text** (485,683 docs; History 43.7%, bitcoin 49.9%); zero duplicate ids, zero empty docs | `notes/data_audit.md` §1 |
+| 2026-09-22 | **H6 precondition met**: `guidance.query_guidance.temporal_reasoning_class_primary` exists — 13 classes. But TCP (`trends_changes_and_cross_period`) is only **9.7%** of train, and 5.0% of train queries are `is_temporal_query: false` | `notes/data_audit.md` §5 |
+| 2026-09-22 | Measured gap between the two aggregations on BM25: query-macro exceeds domain-macro by +0.0059 to +0.0088 (7–9% relative) | `notes/data_audit.md` §7 |
 
-Explicitly **not** verified: any nDCG value beyond IOTA; the 13-domain macro; the Kaggle **GPU**
-path (the smoke kernel still has not been run). The JDK question and the HF layout question were
-both settled by Phase 1 — see the table above.
+Explicitly **not** verified: the Kaggle **GPU** path (the smoke kernel still has not been run);
+any retrieval method of our own (Phases 1–2 ran the organizers' code, not ours); `eval/cv.py` and
+`eval/bootstrap.py` against real data. The JDK, HF-layout and macro questions were settled by
+Phases 1–2. Newly known: **HuggingFace is reachable from Rafi's laptop**, so small files (e.g. all
+26 guidance files, 5.9 MB) can be pulled locally without spending a Kaggle run.
 
 ## Built but unverified against real data
 
@@ -161,7 +169,8 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
 
 - [x] **Phase 1** — IOTA BM25 matches `BASELINE_RESULTS.md` to 4 dp *(PASSED 2026-09-22, commit
       `fa495d3`; verified by the kernel and independently by `eval/gate.py`)*
-- [ ] **Phase 2** — full Track 1 BM25 reproduction + `notes/data_audit.md`
+- [x] **Phase 2** — full Track 1 BM25 reproduction + `notes/data_audit.md` *(PASSED 2026-09-22,
+      commit `6e2e1b7`; 52/52 per-domain cells and all four macros match to 4 dp)*
 - [ ] **Phase 3** — CV harness reproduces BM25, fold variance reported
 - [ ] **Phase 4** — first-stage config picked on train CV only
 - [ ] **Phase 5** — H2 (step fusion) answered with CI
