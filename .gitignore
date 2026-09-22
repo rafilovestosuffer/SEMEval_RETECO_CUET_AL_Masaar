@@ -240,3 +240,6 @@ results/runs/*
 # Job logs
 logs/
 *.log
+
+# deep-research working notes (kept out of the repo; findings are folded into notes/lit/)
+research_notes/

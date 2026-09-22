@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""Official scoring: `pytrec_eval` nDCG@10, macro-averaged the way RETECO does it.
+"""Scoring: `pytrec_eval` nDCG@10, under **both** aggregations RETECO uses.
 
-**The averaging is two-level and getting it wrong is the easiest way to report a number that
-looks plausible and is not ours** (CLAUDE.md §4, §6):
+**Corrected 22 Sept 2026.** This module previously asserted that the equal-weight mean over the
+13 domains was "the official metric" and that pooling over topics was "not". That was backwards
+for the purpose that matters. There are two aggregations and they answer different questions
+(CLAUDE.md §4):
 
-1. within a domain, `pytrec_eval` scores each topic and we take the **mean over topics**;
-2. across domains, we take the **equal-weight mean over the 13 domains**.
+1. **`pooled_over_topics` — the LEADERBOARD metric.** `evaluation.html`: 1a nDCG@10 is "computed
+   independently for each query and macro-averaged"; 1b averages over a query's steps first, then
+   across queries. Per-domain figures are "reported diagnostically". **This is what ranks us, so
+   this is what to optimize.**
+2. **`macro_over_domains` — the organizers' BASELINE TABLE metric.** `BASELINE_RESULTS.md` says
+   "Macro-averaged over domains", and `official_baseline.py:259` computes `sum(vals)/len(vals)`
+   over per-domain entries with `num_topics` excluded. Reproducing it is exactly what the Phase 1
+   and Phase 2 gates check, so it stays — but it is a wiring check, not the objective.
 
-Pooling all topics globally gives a different answer, because domain sizes differ by two orders
-of magnitude — History has 801 queries, IOTA about 10. Verified against the organizers' table:
-the 13 published per-domain 1a-train values average to 0.08785 → their published 0.0879.
+They differ a lot, because domain sizes differ by two orders of magnitude: History has 801
+queries and IOTA about 10, so History is ~46% of the pooled score and 1/13 of the domain macro.
+A change that moves one can move the other the opposite way.
 
-`macro_over_domains` therefore takes per-domain results, never a flat topic list. The
-`pooled_over_topics` function exists only so the difference can be reported in the paper; it is
-**not** the official metric and says so.
+**Report both on every run.** It costs nothing and it is the only way to notice when a gain is an
+artefact of the aggregation rather than a real improvement.
 
 Usage::
 
@@ -105,7 +112,10 @@ def domain_score(run: dict[str, dict[str, float]],
 
 def macro_over_domains(per_domain: dict[str, dict[str, float]],
                        metric: str = "score") -> dict[str, float]:
-    """Level 2: equal-weight mean across domains. **This is the official number.**
+    """Equal-weight mean across domains — **the organizers' baseline-table number**.
+
+    This is what the Phase 1/2 gates reproduce, and what `official_baseline.py` prints. It is
+    *not* the leaderboard metric; see `pooled_over_topics` and the module docstring.
 
     Every domain counts once regardless of how many topics it has. Domains that scored zero
     topics are excluded from the mean rather than counted as 0.0 — a domain we failed to run
@@ -128,9 +138,14 @@ def pooled_over_topics(per_domain_topic_scores: dict[str, dict[str, object]],
                        metric: str = OFFICIAL_METRIC) -> float:
     """Mean over *all* topics globally, ignoring domain boundaries.
 
-    **NOT the official metric.** Provided only so the gap between pooled and macro averaging
-    can be quantified in the paper — large domains dominate it, which is precisely why RETECO
-    does not use it. Never report this as our score.
+    **This is the leaderboard metric** (CLAUDE.md §4) — 1a nDCG@10 "computed independently for
+    each query and macro-averaged". Large domains dominate it by design: History is ~46% of
+    train+dev. Optimize this one.
+
+    Caveat for 1b: the official 1b aggregation averages a query's steps first and *then* across
+    queries, so a query with 8 steps counts once, not eight times. Passing a flat table of step
+    scores here computes the step-level mean instead, which is a different number. Group by
+    parent query first when scoring 1b.
 
     Accepts either shape, because both occur in this codebase and confusing them silently
     would be worse than accepting both: ``{domain: {topic: {metric: value}}}`` as returned by

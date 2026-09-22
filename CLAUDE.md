@@ -89,11 +89,22 @@ Splits (gold labels public for both):
 - train+dev = the entire public TEMPO/RECOR benchmarks → the SemEval test set is new and unseen.
   **[VERIFY]** whether test queries come from the same 13 domains/corpora. Ask on the mailing list if not stated.
 
-Metric: **nDCG@10**, `pytrec_eval` `ndcg_cut_10`, **macro-averaged over the 13 domains** — two levels: within a domain
-`pytrec_eval` averages over topics, then the domains are averaged with *equal weight*. Verified 16 Sept 2026 against the
-starter kit at commit `23093c3`: `BASELINE_RESULTS.md` states "Macro-averaged over domains, as both papers do", and the
-13 published per-domain 1a-train values average to 0.08785 → the published 0.0879. So a domain's query count does not
-affect its weight (see §6). The pure-Python `scorer.py` is the *approximate* zero-install path and also adds temporal
+Metric: **nDCG@10**, `pytrec_eval` `ndcg_cut_10`. **Two different aggregations exist and they are not the same number —
+reopened 22 Sept 2026.**
+
+1. **Leaderboard (what ranks us): macro over QUERIES.** `evaluation.html`, verbatim: 1a — "nDCG@10 is computed
+   independently for each query and macro-averaged"; 1b — "step-specific nDCG@10 values are first averaged over the
+   supplied steps for each query, then aggregated across queries". It adds that "per-domain results are also reported
+   **diagnostically**", which says domains are not the ranking unit.
+2. **The starter-kit baseline table: macro over DOMAINS.** `BASELINE_RESULTS.md` says "Macro-averaged over domains, as
+   both papers do", and `official_baseline.py:259` does exactly that — `sum(vals)/len(vals)` over per-domain entries,
+   with `num_topics` explicitly excluded from the mean. This is why the 13 published per-domain 1a-train values average
+   to 0.08785 → the published 0.0879.
+
+Both readings are evidenced; they describe different artifacts. The 16 Sept entry concluded (1) was (2) and was wrong
+about which one ranks us. Consequences: **optimize for the query-macro**, keep the domain-macro only to reproduce the
+organizers' table (that is what the Phase 1/2 gates check), and **report both on every run** — it is free. Ask the
+organizers to confirm (`notes/organizer_questions.md`). The pure-Python `scorer.py` is the *approximate* zero-install path and also adds temporal
 precision/coverage diagnostics (not ranking); the official number comes from `official_baseline.py` + `pytrec_eval`.
 
 Run format (TREC, 6 cols): `topic Q0 doc_id rank score tag`. Topic ids: 1a = `id` (e.g. `124973_5`); 1b = `step_id` (e.g. `124973_5_step1`).
@@ -158,11 +169,17 @@ Compute planning rules:
   are bf16 and neither the T4 (7.5) nor the P100 (6.0) supports bf16 — load fp16 and check for inf/nan
   on a small batch before committing to a full pass (`notes/lit/diver.md`).
 - Truncate documents deliberately (check length distribution first); consider passage chunking only if data shows long docs hurt.
-- Largest domain is History (801 queries, 356,493 docs) — it dominates query count but **not** the score. Resolved
-  16 Sept 2026 (see §4): the official average is per-domain first, then equal-weight macro across the 13 domains.
-  So History is worth exactly 1/13, the same as IOTA's ~10 queries. Consequences: optimize and report per-domain,
-  never globally; a gain on a small domain is worth as much as the same gain on a large one; and per-domain nDCG on
-  the tiny domains is high-variance, so Phase 3's folds must be stratified by domain and carry per-domain CIs.
+- Largest domain is History (801 queries, 356,493 docs). **Corrected 22 Sept 2026 — this reverses the 16 Sept entry.**
+  The leaderboard macro is over *queries* (§4), so History is worth ~46% of the train+dev score and ~66% of train
+  alone, not 1/13. That is **6× the weight** the previous entry assumed, and it inverts the advice that followed from
+  it: a gain on History is worth roughly sixty times the same gain on IOTA, not the same. Consequences:
+  - Optimize for the query-macro. A change that helps IOTA and hurts History is almost certainly a net loss.
+  - Still **report per-domain**, because the organizers report it diagnostically and because a per-domain table is what
+    makes a failure analysis publishable — but do not optimize the equal-weight mean of it.
+  - Phase 3's folds stay stratified by domain with per-domain CIs: stratification keeps every domain represented in
+    every fold, which is right under either metric. Only the objective changes, not the fold design.
+  - The small domains are high-variance *and* low-weight, so a headline gain driven by IOTA's ~10 queries is noise
+    wearing a result's clothes. Check the per-domain table before believing any macro movement.
 
 ---
 

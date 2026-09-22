@@ -13,10 +13,35 @@ something already documented wastes the organizers' time and our credibility.
 
 ## Resolved — do NOT ask
 
-- ~~Averaging level of the official metric.~~ **Answered from the starter kit**, no need to ask:
-  `BASELINE_RESULTS.md` says "Macro-averaged over domains, as both papers do",
-  `official_baseline.py` implements it, and the 13 published per-domain 1a-train values average
-  to 0.08785 → the published 0.0879. Recorded in `notes/starter_kit_findings.md` §1.
+- ~~Do the hidden test queries come from the same 13 domains?~~ **Answered on the site**: the test
+  set is "stratified across all 13 TEMPO domains", ~350 Track 1 test queries, and "the corpus is
+  never split". So per-domain tuning is safe on coverage grounds; the residual risk is variance at
+  roughly 27 test queries per domain.
+
+## ASK FIRST — the two official documents disagree
+
+- **Averaging level of the official metric.** This was marked resolved on 16 Sept and reopened on
+  22 Sept; it is now the highest-value question we have, because the two answers differ by 6× in
+  how much the History domain is worth.
+  - `evaluation.html` says the leaderboard is a macro over **queries**: 1a "nDCG@10 is computed
+    independently for each query and macro-averaged", 1b averages a query's steps then aggregates
+    across queries, and per-domain results are "reported **diagnostically**".
+  - `BASELINE_RESULTS.md` and `official_baseline.py:259` compute a macro over **domains**
+    (`sum(vals)/len(vals)`, `num_topics` excluded) — which is why the 13 published per-domain
+    1a-train values average to 0.08785 → the published 0.0879.
+  - Suggested wording: *"The evaluation page describes nDCG@10 for 1a as macro-averaged over
+    queries, while `official_baseline.py` aggregates the baseline table as an equal-weight mean
+    over the 13 domains. Which aggregation determines the official ranking? And for 1b, is a
+    query with eight steps weighted the same as a query with two?"*
+  - Why it matters, stated plainly: under the query macro, History is ~46% of train+dev; under the
+    domain macro it is 7.7%. Systems tuned for one can lose under the other.
+
+- **Does doc2query-style index enrichment count as "augmenting the corpus"?** The rules forbid
+  external corpora replacing or augmenting the official one, but generating expansions *from* the
+  official documents is not obviously external. Worth confirming before Phase 4.
+
+- **Is the evaluation-phase index byte-identical to the released corpus?** Decides whether
+  embeddings computed now can be reused in January, which is a multi-week compute commitment.
 
 ---
 

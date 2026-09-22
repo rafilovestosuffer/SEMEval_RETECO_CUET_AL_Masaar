@@ -107,11 +107,24 @@ baseline**. Phase 4 replaces it.
 3. **Paper dates** (Feb 2027 system papers / Mar notification / Apr camera-ready) are marked tentative
    on the official site.
 
-**Resolved 2026-09-16 — averaging level.** Was: "is macro nDCG@10 over all topics globally, or
-per-domain then macro?" Answer: **per-domain, then equal-weight macro over the 13 domains**
-(evidence in the table above and in `notes/starter_kit_findings.md` §1). No need to ask.
-Consequence: History's 801 queries are worth 1/13, exactly like IOTA's ~10 — optimize per-domain,
-and expect high variance on the small domains.
+**REOPENED 2026-09-22 — averaging level. The 16 Sept resolution was wrong in the direction that
+matters.** It concluded "per-domain, then equal-weight macro over the 13 domains" and that
+History's 801 queries are worth 1/13, exactly like IOTA's ~10. The evidence it rested on is real
+but describes the organizers' *baseline table*, not the leaderboard:
+
+| | says | source |
+|---|---|---|
+| Leaderboard | macro over **queries** | `evaluation.html`: 1a "computed independently for each query and macro-averaged"; per-domain "reported **diagnostically**" |
+| Baseline table | macro over **domains** | `BASELINE_RESULTS.md` "Macro-averaged over domains"; `official_baseline.py:259` `sum(vals)/len(vals)`, `num_topics` excluded |
+
+Both are verified from primary sources. They are different numbers for different artifacts, and
+the one that ranks us is the query macro. **Consequence: History is ~46% of train+dev and ~66% of
+train, not 7.7% — 6× the weight we assumed**, which inverts the old advice that a gain on a small
+domain is worth as much as one on a large domain. Optimize the query macro; keep the domain macro
+only for the Phase 1/2 reproduction gates; report both on every run.
+
+Still worth asking the organizers to confirm, because the two official documents disagree in
+plain language and the Phase 2 run will let us state the size of the gap exactly.
 
 ### Operational
 
