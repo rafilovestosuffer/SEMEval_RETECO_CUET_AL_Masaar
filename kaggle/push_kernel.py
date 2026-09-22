@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -35,6 +36,23 @@ LOG = logging.getLogger("reteco.kaggle")
 # Kaggle reports one of these in `kernels status`. Anything else means still running.
 TERMINAL_STATES = {"complete", "error", "cancelAcknowledged", "cancelRequested"}
 USERNAME_PLACEHOLDER = "USERNAME"
+
+# `kernels push` prints the canonical URL it published to, e.g.
+#   Please check progress at https://www.kaggle.com/code/someone/my-kernel-slug
+PUSHED_URL = re.compile(r"kaggle\.com/code/([\w-]+/[\w-]+)")
+
+
+def published_ref(push_output: str, fallback: str) -> str:
+    """The kernel ref Kaggle actually published to, per its own output.
+
+    Kaggle derives the slug from the kernel *title*, not from the ``id`` in our metadata,
+    and only warns when the two disagree. Polling the declared id then fails with
+    "Permission 'kernels.get' was denied" -- which looks like an auth problem and is
+    really a wrong slug -- and the push sits there until the timeout expires. Trusting
+    the printed URL over our own metadata makes the poll correct even when they diverge.
+    """
+    match = PUSHED_URL.search(push_output or "")
+    return match.group(1) if match else fallback
 
 
 def load_metadata(kernel_dir: Path) -> dict:
@@ -140,6 +158,11 @@ def main() -> int:
         LOG.error("%s", exc)
         return 1
     LOG.info("pushed: %s", (proc.stdout or "").strip())
+    published = published_ref(proc.stdout or "", kernel_id)
+    if published != kernel_id:
+        LOG.warning("Kaggle published to '%s', not the declared id '%s' -- it slugifies "
+                    "the title. Polling the published ref.", published, kernel_id)
+    kernel_id = published
     LOG.info("watch it at https://www.kaggle.com/code/%s", kernel_id)
 
     if args.no_wait:
