@@ -16,6 +16,7 @@ Runs locally only.
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -28,6 +29,26 @@ from creds import CredentialsError, export_to_env  # noqa: E402
 from reteco.paths import cache_root, ensure_dir  # noqa: E402
 
 LOG = logging.getLogger("reteco.kaggle")
+
+
+def render_log(raw: str) -> str:
+    """Flatten Kaggle's console log into the text a terminal would have shown.
+
+    Kaggle does not store a plain log: it stores a JSON array of
+    ``{"stream_name": "stdout"|"stderr", "time": float, "data": str}`` chunks, split at
+    arbitrary boundaries. Printing that array verbatim buries a one-line traceback in
+    thousands of escaped fragments. Anything that is not that shape is returned as-is,
+    so a future format change degrades to the old behaviour instead of losing the log.
+    """
+    try:
+        entries = json.loads(raw)
+    except json.JSONDecodeError:
+        return raw
+    if not isinstance(entries, list):
+        return raw
+    return "".join(
+        entry.get("data", "") for entry in entries if isinstance(entry, dict)
+    ) or raw
 
 
 def main() -> int:
@@ -69,10 +90,13 @@ def main() -> int:
         LOG.info("  %s (%s bytes)", path.relative_to(dest), path.stat().st_size)
 
     if args.log:
+        # A console that cannot encode the kernel's output should mangle it, not abort.
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(errors="replace")  # type: ignore[union-attr]
         logs = [p for p in files if p.suffix == ".log" or p.name.endswith(".log.json")]
         for path in logs:
             LOG.info("----- %s -----", path.name)
-            print(path.read_text(encoding="utf-8", errors="replace"))
+            print(render_log(path.read_text(encoding="utf-8", errors="replace")))
 
     return 0
 

@@ -166,3 +166,58 @@ def test_cli_missing_results_explains_how_to_produce_them(tmp_path: Path) -> Non
     )
     assert proc.returncode == 1
     assert "push_kernel.py" in proc.stderr
+
+
+# ---------------------------------------------------------------- Phase 2 gate --
+def _tree(tmp_path: Path, per_domain: dict[str, dict[str, float]]) -> Path:
+    """Write a fake official_baseline.py --out tree: <root>/track1_tempo/<dom>/results.json."""
+    root = tmp_path / "baseline_out"
+    for domain, values in per_domain.items():
+        directory = root / "track1_tempo" / domain
+        directory.mkdir(parents=True)
+        (directory / "results.json").write_text(
+            json.dumps({k: {"NDCG@10": v, "num_topics": 5} for k, v in values.items()}),
+            encoding="utf-8",
+        )
+    return root
+
+
+def test_macro_is_equal_weight_over_domains_not_topics(tmp_path: Path) -> None:
+    """§4: a 1000-topic domain and a 3-topic domain each count exactly once."""
+    root = tmp_path / "baseline_out"
+    for domain, score, topics in (("history", 0.0, 1000), ("iota", 1.0, 3)):
+        directory = root / "track1_tempo" / domain
+        directory.mkdir(parents=True)
+        (directory / "results.json").write_text(
+            json.dumps({"1a_train": {"NDCG@10": score, "num_topics": topics}}),
+            encoding="utf-8",
+        )
+    results = gate.load_results_tree(root)
+    macro, n = gate.macro_from_results(results, "1a_train")
+    assert n == 2
+    assert macro == pytest.approx(0.5), "topic counts must not weight the macro"
+
+
+def test_all_domains_reporting_published_figures_passes(tmp_path: Path) -> None:
+    root = _tree(tmp_path, gate.PUBLISHED)
+    results = gate.load_results_tree(root)
+    assert len(results) == 13
+    for domain in gate.PUBLISHED:
+        assert gate.verdict(gate.compare(results[domain], domain))
+
+
+def test_a_single_diverging_domain_fails_the_macro(tmp_path: Path) -> None:
+    perturbed = {d: dict(v) for d, v in gate.PUBLISHED.items()}
+    perturbed["history"]["1a_dev"] = 0.9
+    results = gate.load_results_tree(_tree(tmp_path, perturbed))
+    rows = {r.key: r for r in gate.compare_macro(results)}
+    assert not rows["1a_dev"].matched
+
+
+def test_missing_domain_is_reported_not_averaged_as_zero(tmp_path: Path) -> None:
+    subset = {d: v for d, v in gate.PUBLISHED.items() if d != "history"}
+    results = gate.load_results_tree(_tree(tmp_path, subset))
+    _, n = gate.macro_from_results(results, "1a_train")
+    assert n == 12, "a missing domain must shrink the denominator, not count as 0.0"
+    assert "MISSING" in gate.render_all(results)
+    assert "history" in gate.render_all(results)

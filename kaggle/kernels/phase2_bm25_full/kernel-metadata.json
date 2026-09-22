@@ -1,0 +1,15 @@
+{
+  "id": "USERNAME/reteco-phase2-bm25-full",
+  "title": "RETECO phase2 BM25 full track1",
+  "code_file": "phase2_bm25_full.py",
+  "language": "python",
+  "kernel_type": "script",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

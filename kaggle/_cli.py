@@ -10,6 +10,7 @@ PATH and are immune to that shadowing.
 from __future__ import annotations
 
 import logging
+import os
 import shutil
 import subprocess
 import sys
@@ -70,12 +71,19 @@ def run_kaggle(args: list[str], check: bool = True) -> subprocess.CompletedProce
     """
     exe = require_cli()
     LOG.debug("running: kaggle %s", " ".join(args))
+    # The CLI writes a kernel's console log to disk with Python's *default* encoding,
+    # which is cp1252 on Windows. tqdm progress bars in a kernel log contain U+2589, so
+    # `kernels output` dies with UnicodeEncodeError and leaves a 0-byte .log behind.
+    # Forcing UTF-8 in the child fixes it at the source; the encoding= below only governs
+    # how we read the child's own stdout/stderr, which is a different problem.
+    env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
     proc = subprocess.run(  # noqa: S603 - fixed executable, arguments are not shell-interpreted
         [exe, *args],
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
+        env=env,
     )
     for line in (proc.stdout or "").splitlines():
         LOG.debug("  out: %s", line)
