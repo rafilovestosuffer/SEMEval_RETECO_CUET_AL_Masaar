@@ -95,6 +95,37 @@ GPU is not needed until Phase 4.
 
 ---
 
+## Producing submission runs (the frozen pipeline)
+
+Every stage below was selected on train and dry-run on dev before it was trusted. The split
+is a single constant (`SPLIT = ...`) at the top of each kernel; nothing else changes between
+dev and test. No stage reads qrels. Run from the repo root in Git Bash, with
+`export PYTHONUTF8=1` (the Kaggle CLI and the organizers' checker otherwise crash on Windows'
+cp1252 default).
+
+```bash
+# 1. dense search (T4, ~5 min): set SPLIT in kaggle/kernels/pipeline_dense/pipeline_dense.py
+python kaggle/push_kernel.py kaggle/kernels/pipeline_dense
+kaggle kernels output rafiurrahman01/reteco-pipeline-dense -p cache/pipeline_<split>/dense --file-pattern "(runs/.*|.*\.log)"
+
+# 2. step fusion for 1a (local CPU, ~1 min); 1b is the plain dense step run (Phase 5c)
+python eval/write_fused_runs.py --split <split> --runs cache/pipeline_<split>/dense/runs --out cache/pipeline_<split>/fused
+
+# 3. rerank 1a with ReasonRank-7B (T4 x2) — only if Phase 7 kept it; see PROGRESS.md
+#    upload reteco/ + the fused runs as the reteco-pipeline-input dataset, set SPLIT, push
+python kaggle/push_kernel.py kaggle/kernels/pipeline_rerank
+
+# 4. assemble + validate (local): falls back to the fused list for any topic not reranked,
+#    checks every topic in the split's query files has rows, runs the organizers' checker
+python submit/assemble_runs.py --split <split> --data <track1_tempo with examples/steps_<split>.jsonl> \
+    --fused cache/pipeline_<split>/fused [--reranked <pulled rerank runs>] --out cache/pipeline_<split>/final
+```
+
+Step 4's exit code is the submission gate: non-zero means do not submit.
+**[VERIFY] in January:** the test files' names and layout, and the platform's run-naming rules.
+
+---
+
 ## Rules that are not optional
 
 From `CLAUDE.md` §5:
