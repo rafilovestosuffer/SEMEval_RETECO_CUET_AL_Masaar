@@ -329,14 +329,24 @@ def main() -> int:
     passed = gate(results)
     save_report()
 
-    section(f"RESULT: {'PASS' if passed else 'FAIL'}")
+    section(f"PIPELINE COMPLETED — gate verdict: {'PASS' if passed else 'FAIL'}")
     print(f"report:  {REPORT}")
     print(f"runs:    {OUT_DIR / 'track1_tempo' / DOMAIN}")
     if passed:
         print("\nPhase 1 gate closed. Log the ledger row, then propose Phase 2.")
     else:
         print("\nGate not closed. The per-key deltas above say which sub-track diverged.")
-    return 0 if passed else 1
+        print("The pipeline itself ran fine — this is a numeric mismatch, not a crash.")
+
+    # Exit 0 whenever the pipeline completed, even when the gate verdict is FAIL.
+    # Kaggle marks any non-zero exit as kernel status "error", and push_kernel.py
+    # reports that as a failure -- which would make "ran perfectly, numbers differ"
+    # indistinguishable from "crashed", and might stop us pulling the output at all.
+    # A mismatch is a *result*, not an error. The verdict lives in gate_passed in
+    # phase1_report.json and in the table above; eval/gate.py is the authority and
+    # returns a proper exit code locally, where CI semantics actually belong.
+    # Non-zero here is reserved for die() -- a genuine blocker that stopped the run.
+    return 0
 
 
 if __name__ == "__main__":
