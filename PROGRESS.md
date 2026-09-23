@@ -216,6 +216,29 @@ kernels and run the README's "Producing submission runs" sequence unchanged; sub
 Budget the rerank at ~33 s/query on T4×2 (dev: 519 queries in 4.75 h); above ~800 test queries,
 split reranking across two sessions — the assembler falls back safely for anything not reached.
 
+## v2 work in progress (2026-09-24)
+
+Deep research: `reports/RETECO v2 improvement levers.md`. Its build order, all selected on train:
+
+1. **Rank interpolation of reranked and fused 1a lists — REJECTED.** Grid best +0.0039
+   [+0.0002, +0.0076] was the best of 15 cells; on held-out halves (3 seeds × 2 folds) the chosen
+   cell gives +0.0008 to +0.0049, none significant. Ledger `v2s1_rank_interp_a0.8_k10`.
+2. **Rerank the 1b step lists — READY, BLOCKED ON QUOTA.** Go criterion met: 1b dense recall
+   is 0.440 at 10 and 0.608 at 30 (+0.168 headroom, vs 0.154 for 1a). Step gold ⊂ parent-query
+   gold for 2,762/2,762 train steps, so the risk to watch is promoting a sibling step's documents.
+   Kernel `kaggle/kernels/v2_rerank` (SUBTRACK="1b", 250 random train parents ≈ 570 steps,
+   ~5 h wall) passed the CPU smoke test and its input dataset `reteco-v2-input` is uploaded.
+   **Push it after the weekly quota resets:** `python kaggle/push_kernel.py kaggle/kernels/v2_rerank`.
+   Judge by the official 1b aggregation, paired vs the dense step run on the same parents.
+3. GroupRank-7B throughput test, 4. temporal query views for the 1a pool, 5. depth 50 — only
+   after step 2, per the report.
+
+**T4×2 bills quota at ~2× — now measured.** The push was refused with "Maximum weekly GPU quota
+of 30.00 hours reached" after ~18.6 h of wall-clock this week (Phase 4b 6.0 h, Phase 7 7.6 h,
+dev rerank 4.75 h, dense ~0.2 h). Plan January on GPU-hours = 2 × wall: the v1 test rerank of
+~519 queries ≈ 9.5 GPU-h; adding 1b reranking (if step 2 passes) ≈ +21 GPU-h — about a full
+week's quota, so start early in the window.
+
 ## Phase 8 result — the single dev check
 
 | 1a, dev (519 queries) | query macro | paired step |
