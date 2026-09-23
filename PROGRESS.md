@@ -4,13 +4,20 @@
 > Update it at the end of every session: what changed, what is *verified*, what is next.
 > A number appears here only if code in this repo produced it and it is in `results/ledger.csv` (§5.6).
 
-Last updated: 2026-09-23
+Last updated: 2026-09-24
 
 ---
 
 ## Current phase
 
-**Phase 8 — v1 FROZEN 2026-09-23 (git tag `v1-frozen`), single dev check running.** v1 =
+**Phase 8 — PASSED 2026-09-24. Single dev check of v1: 1a 0.3665, 1b 0.3147** (BM25 dev 0.1055 /
+0.1121). Every stage replicates on dev with the same sign and order as train — dense +0.1857,
+fusion +0.0080 [+0.0011, +0.0158], rerank +0.0673 [+0.0488, +0.0868] — and dev is not below train,
+so there is no overfitting signal. Final dev runs: 519/519 queries reranked, 0 parse failures,
+every file VALID. Nothing is left to do before the January evaluation window except the
+organizer questions below.
+
+**Phase 8 — v1 FROZEN 2026-09-23 (git tag `v1-frozen`).** v1 =
 Diver-Retriever-0.6B dense → step fusion (1a) → ReasonRank-7B over the fused top-30 (1a);
 1b is the plain dense step run. The frozen pipeline (README "Producing submission runs") was
 dry-run on dev through fusion and assembly: 519/519 queries and 1,214/1,214 steps covered, every
@@ -202,9 +209,25 @@ sliding windows, ranks 31–100 untouched. Ledger `phase7_rerank_reasonrank7b_d3
 
 ## Next step (the ONE step)
 
-**Score the single Phase 8 dev check** once `pipeline_rerank` (dev) finishes: assemble with
-`submit/assemble_runs.py`, then score 1a and 1b once, log it with its reason, and compare dev to
-the train numbers above. If dev ≪ train, investigate before changing anything (§9).
+**Phase 9, in the evaluation window (10–31 Jan 2027):** set `SPLIT = "test"` in the two pipeline
+kernels and run the README's "Producing submission runs" sequence unchanged; submit only if
+`submit/assemble_runs.py` exits 0. Before then, the only open items are the organizer questions
+(test domains, submission caps, run naming) and registering the team when the platform opens.
+Budget the rerank at ~33 s/query on T4×2 (dev: 519 queries in 4.75 h); above ~800 test queries,
+split reranking across two sessions — the assembler falls back safely for anything not reached.
+
+## Phase 8 result — the single dev check
+
+| 1a, dev (519 queries) | query macro | paired step |
+|---|---:|---|
+| BM25 (official) | 0.1055 | — |
+| dense | 0.2912 | +0.1857 [+0.1605, +0.2112] |
+| + step fusion | 0.2992 | +0.0080 [+0.0011, +0.0158] |
+| **+ ReasonRank-7B top-30 (v1)** | **0.3665** | +0.0673 [+0.0488, +0.0868] |
+
+1b dev (v1 = plain dense steps): **0.3147** vs BM25 0.1121, +0.2026 [+0.1760, +0.2288].
+Ledger `phase8_v1_dev`. Reranking helps 11 of 13 domains on dev; it lowers iota (3 queries) and
+monero (19), and raises History, 240 of the 519 queries, from 0.3035 to 0.3810.
 
 ## Phase 4a notes (kept for the record)
 
@@ -330,7 +353,7 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
       [+0.0071,+0.0162]; mechanism is pool union, not score blending)*
 - [ ] **Phase 6** — query rewriting gain > CI width, cost acceptable
 - [x] **Phase 7** — H4 (reranking) answered, GPU-hours logged *(2026-09-23: ReasonRank-7B top-30 +0.0508 [+0.0362,+0.0664] on 896 random train queries; 7.64 h wall on T4x2)*
-- [ ] **Phase 8** — v1 frozen, single dev eval, submission dry-run
+- [x] **Phase 8** — v1 frozen, single dev eval, submission dry-run *(2026-09-24: tag v1-frozen; dev 1a 0.3665, 1b 0.3147; full pipeline dry-run on dev, every file VALID)*
 - [ ] **Phase 9** — submitted in the evaluation window
 - [ ] **Phase 10** — system paper
 
