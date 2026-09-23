@@ -10,6 +10,17 @@ Last updated: 2026-09-23
 
 ## Current phase
 
+**Phase 8 — v1 FROZEN 2026-09-23 (git tag `v1-frozen`), single dev check running.** v1 =
+Diver-Retriever-0.6B dense → step fusion (1a) → ReasonRank-7B over the fused top-30 (1a);
+1b is the plain dense step run. The frozen pipeline (README "Producing submission runs") was
+dry-run on dev through fusion and assembly: 519/519 queries and 1,214/1,214 steps covered, every
+file VALID under the organizers' checker, no qrels read.
+
+**Phase 7 — H4 CONFIRMED 2026-09-23: reranking +0.0508 nDCG@10**, on a seeded random 896 of 1,211
+train queries (the time budget ended the session). The cost was 5× my estimate — see below.
+
+**Phase 5c — 1b mirror of H2 is NEGATIVE:** the parent query's pool never helps 1b.
+
 **Phase 5b — operator ablation DONE 2026-09-23: operator does not matter once pools are unioned; config unchanged.**
 
 **Phase 5 — H2 ANSWERED 2026-09-23, with a mechanism.** Step fusion beats whole-query
@@ -150,14 +161,51 @@ the pool-union mechanism held:
   0.2901 → 0.2987 (it is 561 of 1,211 train queries). law, monero and quant dip slightly, and
   those three are 94 queries combined.
 
+## Phase 5c result — the parent pool does not help 1b
+
+Each step's ranking fused with its parent query's 1a ranking, scored against the step qrels
+with the official 1b aggregation (ledger `phase5c_1b_parentfuse_w1`, `eval/stepfuse_1b.py`):
+w=0.001 changes nothing (a step's top-10 is already full; parent-only documents land below it),
+and every larger weight **hurts**, monotonically: −0.0018 at w=0.1 to −0.0083 [−0.0120, −0.0047]
+at w=1, all significant. **Pool union helps only in the 1a direction**, many step pools into
+one query, and not the reverse. 1b stays the plain dense step run (0.2791).
+
+## Phase 7 result — H4, reranking works, and it is expensive
+
+Reranker chosen from the literature (`notes/lit/reasonrank.md`): on BRIGHT, reranking
+ReasonIR's top-100 (30.59), most rerankers under 32B make the list *worse* (RankT5 16.60,
+RankZephyr 22.64, Rank1-7B 27.23); only Rearank-7B (31.75) and **ReasonRank-7B (35.74)**
+improve it. ReasonRank-7B (MIT, `liuwenhan/reasonrank-7B @3444046`), the authors' prompt and
+settings ported verbatim into `reteco/rerank.py` (unit-tested), fused top-30 reranked with two
+sliding windows, ranks 31–100 untouched. Ledger `phase7_rerank_reasonrank7b_d30`.
+
+| on the same 896 random train queries | query macro |
+|---|---:|
+| dense (Phase 4) | 0.2670 |
+| + step fusion (Phase 5) | 0.2787 |
+| **+ ReasonRank-7B top-30** | **0.3296** |
+| paired vs fused | **+0.0508 [+0.0362, +0.0664] significant** |
+
+- 12 of 13 domains improve; bitcoin dips (0.1660 → 0.1538, 49 queries). History, 413 of these
+  queries, goes 0.3142 → 0.3539. Wins 390, losses 194, ties 312.
+- Parsing is not a risk: 2 unparseable windows of 1,792, 2 truncated reasoning chains.
+- **The 896 are a seeded random sample, not the first 896**: the kernel shuffles before
+  chunking so a budget cut leaves an unbiased subset. The other 315 train queries were not
+  reranked; the full-train number is therefore not reported.
+- **Cost, 5× over my estimate: 29.7 s/query on T4×2, 7.64 h wall.** Two errors: prompts are
+  6.5k tokens per window, not ~3.8k (20 passages at up to 512 tokens each), and vLLM fell back
+  to Triton attention because FlashAttention needs compute capability ≥ 8. Measured
+  throughput ~490 tok/s total, prefill-bound. Consequences: dev (519 queries) ≈ 4.3 h; a test
+  set above ~900 queries must be split across two sessions (the assembler already falls back
+  to the fused list for any topic not reranked, so a split is safe).
+- Whether T4×2 bills quota at 1× or 2× is **still unmeasured** and now matters: 7.64 h wall is
+  7.6 or 15.3 GPU-hours.
+
 ## Next step (the ONE step)
 
-**Phase 7 — reranking, re-decided on the corrected ceiling.** Dense recall@100 is 0.648 and
-the fused pool's is 0.685, so a reranker has real headroom. The "do not rerank" conclusion
-rested on BM25's 0.268. Before any GPU run, this needs (a) a reranker choice researched
-against BRIGHT/TEMPO numbers, avoiding MS MARCO cross-encoders (presumed harmful,
-`notes/lit/SUMMARY.md` row 7), (b) a GPU-hour estimate for 1,211 train queries × top-k, and
-(c) Rafi's go-ahead. Phase 6 (query rewriting) stays optional and behind Phase 7.
+**Score the single Phase 8 dev check** once `pipeline_rerank` (dev) finishes: assemble with
+`submit/assemble_runs.py`, then score 1a and 1b once, log it with its reason, and compare dev to
+the train numbers above. If dev ≪ train, investigate before changing anything (§9).
 
 ---|---:|---|---|---:|
 | politics | 0.581 | | travel | 0.209 |
@@ -361,7 +409,7 @@ step. Claude Code sessions write the code; Rafi runs it and pastes back real out
 - [x] **Phase 5** — H2 (step fusion) answered with CI *(2026-09-23: +0.0115 nDCG@10,
       [+0.0071,+0.0162]; mechanism is pool union, not score blending)*
 - [ ] **Phase 6** — query rewriting gain > CI width, cost acceptable
-- [ ] **Phase 7** — H4 (reranking) answered, GPU-hours logged
+- [x] **Phase 7** — H4 (reranking) answered, GPU-hours logged *(2026-09-23: ReasonRank-7B top-30 +0.0508 [+0.0362,+0.0664] on 896 random train queries; 7.64 h wall on T4x2)*
 - [ ] **Phase 8** — v1 frozen, single dev eval, submission dry-run
 - [ ] **Phase 9** — submitted in the evaluation window
 - [ ] **Phase 10** — system paper
