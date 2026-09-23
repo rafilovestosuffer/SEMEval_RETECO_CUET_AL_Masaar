@@ -38,12 +38,11 @@ fold variance and bootstrap CIs under both aggregations, and its paired test is 
 table on **all 13 domains × 4 cells and all four macros**, to 4 dp. `notes/data_audit.md` written.
 83 minutes of CPU, zero GPU quota spent to date across the whole project.
 
-Phase 3 (validation harness on real data) has not started.
-
-The `reteco/` core modules, the Phase 3 harness and the Phase 8 submission path are still **tested
-in isolation only**. Phases 1–2 validated the *organizers'* code path, not ours. Note that
-`restrict_to_corpus` is now known to be a **no-op** on this data (zero unreachable gold anywhere),
-so it remains unexercised rather than validated — see the retraction below.
+The `reteco/` modules, the Phase 3 harness and the submission path are now **validated on
+real data**: Phases 3-7 ran our own code end to end, and the frozen pipeline was dry-run on
+dev (fusion + assembly) with every file VALID under the organizers' checker.
+`restrict_to_corpus` is a **no-op** on this data (zero unreachable gold), so it remains
+unexercised rather than validated.
 
 ## Last verified result
 
@@ -207,42 +206,7 @@ sliding windows, ranks 31–100 untouched. Ledger `phase7_rerank_reasonrank7b_d3
 `submit/assemble_runs.py`, then score 1a and 1b once, log it with its reason, and compare dev to
 the train numbers above. If dev ≪ train, investigate before changing anything (§9).
 
----|---:|---|---|---:|
-| politics | 0.581 | | travel | 0.209 |
-| cardano | 0.463 | | **history** | **0.199** |
-| hsm | 0.452 | | economics | 0.194 |
-| law | 0.327 | | bitcoin | 0.164 |
-| genealogy | 0.317 | | quant | 0.139 |
-| workplace | 0.297 | | monero | 0.132 |
-| | | | iota | 0.083 |
-
-Caveat: the Phase 2 run files truncate at top-100, so recall@1000 — the ceiling for a deeper
-rerank — **cannot** be computed from them and remains unmeasured.
-
-## Next step (the ONE step)
-
-**Phase 4b — embed the corpus with Diver-Retriever-0.6B.** Phase 4a settled the cost question
-with a measurement instead of arithmetic, and the answer is that this is comfortable:
-
-| | measured |
-|---|---|
-| throughput | **6,134 real tokens/sec = 25 docs/sec** (0.6B, fp16, batch 8, max_len 512) |
-| corpus | 11.8 GPU-hours for 0.26B tokens — **0.39 weeks of quota**, ~1.5 sessions |
-| fp32 -> fp16 | **3.2x** (1,847 -> 5,991 tok/s), VRAM halved |
-| numerics | 0 inf, 0 nan, norms within 5e-4 of 1.0 — the fp16 cast is safe |
-| VRAM | peak **1.74 GB of 15.6** at batch 8; no OOM even at batch 128 |
-
-Run shape: deduplicate with `reteco.dedup.build_plan` (-29.4%, validated against the audit on
-IOTA), encode unique texts only, write fp16 shards with a `.done` sentinel so a killed session
-resumes, then scatter back to all 1.65M doc ids.
-
-**Stay at 0.6B rather than upgrading.** 1.7B would cost ~33 h — a full week's quota — for +2.1
-BRIGHT, and 4B ~78 h for +6.7. Meanwhile TEMPO Table 5 reports temporal-intent tagging giving
-**+8.0**, more than the entire 0.6B -> 4B gap, at a cost that scales with 1,730 queries rather
-than 1.65M documents. Spending the saved quota on the query side dominates spending it on a
-bigger encoder.
-
-### Three things Phase 4a corrected
+## Phase 4a notes (kept for the record)
 
 - **Length-sorted batching is not a lever.** Measured 5,860 sorted vs 5,991 unsorted — nothing,
   because sentence-transformers already sorts internally. The earlier claim that padding cost
@@ -253,34 +217,6 @@ bigger encoder.
 - **Kaggle allocated 2x T4**; only one was used. Whether a two-GPU session bills quota at 1x or
   2x is still unmeasured, and is worth ~2x wall-clock if it is 1x.
 
----|---:|
-| fp32, padded to 512, 4B | ~540 |
-| fp16, length-sorted, 4B | ~56 |
-| fp16, length-sorted, **0.6B** | **~7** |
-
-Only 8x of that 96x spread is the model. `AQ-MedAI/Diver-Retriever-0.6B` exists, is Apache-2.0, is
-1024-dim, and scores **BRIGHT 25.2** against the 4B's 28.9 — 3.7 points for ~8x the hours, and still
-ahead of every model in the original BRIGHT paper including GTE-Qwen-7.7B (22.5).
-
-**Everything below 4B in that table is roofline arithmetic, not a measurement** — no public tokens/sec
-benchmark exists for modern embedding models on a T4. So the next step is not the full run; it is a
-timed encode of a stratified ~20k-document sample that turns the derived number into a real one, and at
-the same time settles four unknowns:
-
-1. Does `model.dtype` actually come back fp16 (the DIVER cards specify bf16, which sm75 lacks)?
-2. Any inf/nan in the embeddings after the bf16 -> fp16 cast?
-3. What batch/token budget saturates a T4 at 512 tokens without OOM?
-4. Does Kaggle's **T4x2** bill quota at 1x or 2x? Undocumented, and worth 2x wall-clock if it is 1x.
-
-Order the full run as: deduplicate by content hash (-29.4%, free) -> length-sort globally -> shard over
-the sorted order -> fp16 -> write each shard with a `.done` sentinel so a killed session resumes.
-
-**Then spend the saved hours on the query side, not the corpus.** TEMPO Table 5 gives explicit
-temporal-intent tagging **+8.0** on ReasonIR — more than twice the entire 4B -> 0.6B penalty — and it
-scales with 1,730 queries rather than 1.65M documents. A smaller encoder funding query-side temporal
-work is the best use of a 30 GPU-hour/week budget.
-
----
 
 ## Verified so far
 
@@ -311,27 +247,9 @@ work is the best use of a 30 GPU-hour/week budget.
 | 2026-09-22 | **H6 precondition met**: `guidance.query_guidance.temporal_reasoning_class_primary` exists — 13 classes. But TCP (`trends_changes_and_cross_period`) is only **9.7%** of train, and 5.0% of train queries are `is_temporal_query: false` | `notes/data_audit.md` §5 |
 | 2026-09-22 | Measured gap between the two aggregations on BM25: query-macro exceeds domain-macro by +0.0059 to +0.0088 (7–9% relative) | `notes/data_audit.md` §7 |
 
-Explicitly **not** verified: the Kaggle **GPU** path (the smoke kernel still has not been run);
-any retrieval method of our own (Phases 1–2 ran the organizers' code, not ours); `eval/cv.py` and
-`eval/bootstrap.py` against real data. The JDK, HF-layout and macro questions were settled by
-Phases 1–2. Newly known: **HuggingFace is reachable from Rafi's laptop**, so small files (e.g. all
-26 guidance files, 5.9 MB) can be pulled locally without spending a Kaggle run.
-
-## Built but unverified against real data
-
-Tested in isolation on a synthetic fixture. **No gate below is passed** — each needs the corpus.
-
-| Module | What it does | What would falsify it |
-|---|---|---|
-| `reteco/data.py` | release-schema loaders, `restrict_to_corpus`, the 1b query template | real files whose field names differ from the starter kit's |
-| `reteco/runs.py` | TREC read/write, corpus-order tie-break | a divergence from `official_baseline.py` on tied scores |
-| `reteco/fusion.py` | RRF, weighted/max/sum, min-max interpolation | nothing — pure arithmetic; the *choice* among them is H2 |
-| `eval/score.py` | two-level macro over `pytrec_eval` | disagreement with the organizers' own numbers in Phase 1/2 |
-| `eval/bootstrap.py`, `eval/cv.py` | domain-stratified folds, CIs, paired test | fold counts on real per-domain query counts |
-| `submit/make_runs.py`, `check_format.py` | end-to-end runs + validation | real test-split file naming |
-
-The retriever inside `make_runs.py` is a deliberate token-overlap placeholder, **not a
-baseline**. Phase 4 replaces it.
+Newly known: **HuggingFace is reachable from Rafi's laptop**, so small files (query files,
+guidance, qrels) are pulled locally without spending a Kaggle run. The Kaggle GPU path is
+proven (Phases 4a-7).
 
 ---
 
@@ -374,8 +292,10 @@ plain language and the Phase 2 run will let us state the size of the gap exactly
   or still the exposed one is unknown from here — Rafi must confirm.*
 - **`kaggle/pull_output.py` cannot print a kernel log on Windows.** The Kaggle library writes the
   log with the cp1252 default encoding and IOTA's tqdm bars contain `▉` (U+2589), so the pull dies
-  with `UnicodeEncodeError` and leaves a 0-byte `.log`. Workaround: `export PYTHONUTF8=1` before
-  pulling. Not yet fixed in the script.
+  with `UnicodeEncodeError` and leaves a 0-byte `.log`. **Fixed**: `kaggle/_cli.py` runs the CLI
+  with `PYTHONUTF8=1`. Separately, a full pull also downloads the kernel's `reteco_data/` and is
+  slow; pull runs only with `kaggle kernels output ... --file-pattern "(runs/.*|.*\.log)"`.
+  The same cp1252 crash hit the organizers' `format_checker.py`; fixed in `submit/check_format.py`.
 - Semester finals run to 20 Sept 2026 and the NuNO paper is due 30 Sept 2026. RETECO is secondary
   (§2) — do not propose work that assumes full-time availability before October.
 
