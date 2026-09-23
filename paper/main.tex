@@ -1,0 +1,158 @@
+% SemEval-2027 Task 1 (RETECO) system description — CUET_AL_Masaar.
+% DRAFT started 2026-09-23. Every number in this file is copied from results/ledger.csv;
+% the ledger run_id is given in a comment next to it. \pending{} marks numbers that do not
+% exist yet (dev check, test submission). Do not fill one without a ledger row.
+\documentclass[11pt]{article}
+\usepackage[review]{acl}
+\usepackage{times}
+\usepackage{latexsym}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\newcommand{\pending}[1]{\textcolor{red}{[PENDING: #1]}}
+
+\title{CUET\_AL\_Masaar at SemEval-2027 Task 1: Candidate-Pool Union of Decomposed Steps\\
+and Listwise Reasoning Reranking for Temporal Retrieval}
+
+\author{Rafiur Rahman \\
+  Chittagong University of Engineering and Technology \\
+  \texttt{u2303064@student.cuet.ac.bd}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We describe our system for Track~1 of RETECO (temporal retrieval, sub-tasks 1a and 1b). It has
+three stages: a 0.6B dense retriever, a fusion of each query's ranking with the rankings of its
+decomposed reasoning steps, and a 7B listwise reasoning reranker over the top 30 candidates.
+On the training split, macro nDCG@10 over queries goes from 0.0944 (official BM25) to 0.2570
+(dense), 0.2685 (step fusion) and, on a random 896-query subset, from 0.2787 to 0.3296 with
+reranking. Our main finding concerns step fusion: its gain comes entirely from adding the whole
+query's candidates to the step candidates, not from how scores are combined. A parent-query
+weight of 0.001 captures the full gain, the choice among sum, max and reciprocal rank fusion
+makes no significant difference, and the same union applied in the other direction (adding
+the query's candidates to each step) does not help sub-task 1b.
+Test results: \pending{official 1a / 1b test nDCG@10 and rank}.
+\end{abstract}
+
+\section{Introduction}
+RETECO Track~1 is built on TEMPO \citep{abdallah2026tempo}: 13 StackExchange-derived domains,
+1,654,055 documents, and questions whose answers depend on temporal reasoning. Sub-task 1a ranks
+documents for a whole question; sub-task 1b ranks documents for each of the question's official
+decomposed steps. Both are scored by nDCG@10, macro-averaged over queries (1b first averages over
+a query's steps). The official BM25 baseline reaches 0.0879 macro over domains on the training
+split, which we reproduce exactly on all 13 domains.
+
+We entered 1a and 1b with one pipeline and chose every component on the training split alone,
+using domain-stratified bootstrap confidence intervals and paired tests. The development split
+was used once, for the frozen system (\S\ref{sec:dev}).
+
+\section{System}
+\paragraph{First stage.} \texttt{AQ-MedAI/Diver-Retriever-0.6B} \citep{sun2025diver}, chosen
+over its 1.7B and 4B siblings on measured cost: embedding the deduplicated corpus (29.4\% of
+documents are byte-identical duplicates) took 6.0 hours on two T4 GPUs in fp16. Queries use the
+model's query prompt and documents none; 1b queries use the official template (query, blank
+line, \texttt{Step:} instruction). Scores are computed in fp32; computing them in fp16 left
+about 70\% of each top-100 in exact-score ties.
+
+\paragraph{Step fusion (1a).} For each question, the whole-query ranking (weight $w$) and each
+step ranking (weight 1) are normalised by their maximum score and summed; documents missing from
+a list score 0; ties break by corpus order; the top 100 are kept. We use $w{=}0.001$
+(\S\ref{sec:fusion}).
+
+\paragraph{Reranking (1a).} ReasonRank-7B \citep{liu2025reasonrank} reranks the fused top 30
+with the authors' own prompt and settings: windows of 20 passages moved back to front with step
+10, passages truncated to 512 tokens, greedy decoding with a 3,072-token reasoning budget.
+Ranks 31--100 are unchanged. We chose it from published BRIGHT results \citep{su2025bright},
+where most rerankers below 32B lower the score of a strong retriever and ReasonRank-7B raises it.
+
+\paragraph{1b.} The dense step rankings, without fusion or reranking (\S\ref{sec:fusion}).
+
+\section{Experiments on the training split}
+All numbers are macro nDCG@10 over the 1,211 training queries unless stated, with paired
+bootstrap 95\% confidence intervals.
+
+\begin{table}[t]
+\centering\small
+\begin{tabular}{lr}
+\toprule
+System (1a, train) & nDCG@10 \\
+\midrule
+Official BM25 & 0.0944 \\ % phase2_bm25_full_r1
+Dense (Diver-0.6B) & 0.2570 \\ % phase5 baseline, fp32 scoring
++ step fusion, $w{=}0.001$ & 0.2685 \\ % phase5_stepfuse_w0.001
+\midrule
+\multicolumn{2}{l}{\emph{random 896-query subset}} \\
++ step fusion & 0.2787 \\ % phase7_rerank_reasonrank7b_d30
++ ReasonRank-7B, top 30 & 0.3296 \\ % phase7_rerank_reasonrank7b_d30
+\bottomrule
+\end{tabular}
+\caption{Sub-task 1a on the training split. Reranking was evaluated on a seeded random 896 of the
+1,211 queries because the GPU session ended first.}
+\label{tab:main}
+\end{table}
+
+\paragraph{Dense retrieval.} Dense retrieval exceeds BM25 by $+0.1622$ [$+0.1472$, $+0.1774$] on
+1a and raises recall@100 from 0.268 to 0.648. The two retrievers' top-100 lists overlap by only
+0.060, but almost all of the disagreement goes one way: dense finds 1,706 judged documents that
+BM25 misses and BM25 finds 104 that dense misses, so their union adds only 0.027 recall@100.
+We therefore did not use BM25.
+
+\subsection{Step fusion is a candidate-pool union}
+\label{sec:fusion}
+Fusion improves 1a by $+0.0115$ [$+0.0071$, $+0.0162$]. Three measurements locate the gain:
+
+\emph{Weight.} Dropping the whole-query list ($w{=}0$) gives $+0.0014$, not significant. A weight of
+0.001 gives the full $+0.0115$. From there the gain is flat to $w{\approx}0.25$ and declines as
+$w$ grows ($+0.0030$ at $w{=}5$, not significant at $w{=}10$). A weight too small to reorder
+anything that both lists contain still admits the whole query's own candidates into the pool.
+
+\emph{Recall.} Recall@100 is 0.6479 for the whole-query list, 0.6466 for the step lists, and
+0.6849 for their union: the two find the same amount of relevant material but different
+documents.
+
+\emph{Operator.} Across sum, max and reciprocal rank fusion \citep{cormack2009rrf} with max,
+min-max and rank normalisation, every configuration that includes the whole-query list scores
+0.2654--0.2695, none significantly different from our choice. The only significant difference
+is reciprocal rank fusion at equal weight, $-0.0060$ [$-0.0093$, $-0.0031$], which recovers fully
+at $w{=}0.001$. The operator ablation that decomposition work usually reports
+\citep{zhong2025redi} matters little here; which lists enter the pool matters.
+
+\emph{Direction.} Adding the whole-query list to each step's list and scoring 1b never helps:
+$+0.0000$ at $w{=}0.001$ and a monotone decline to $-0.0083$ [$-0.0120$, $-0.0047$] at $w{=}1$.
+A step's own top 10 is already full, so the extra candidates either stay below rank 10 or
+displace step-specific ones.
+
+\subsection{Reranking}
+On the 896-query subset, reranking adds $+0.0508$ [$+0.0362$, $+0.0664$] over fusion. It improves
+12 of 13 domains (bitcoin falls from 0.1660 to 0.1538 on 49 queries); per query it wins 390
+times and loses 194. Only 2 of 1,792 reranking windows produced an unparseable answer.
+
+\section{Development check}
+\label{sec:dev}
+\pending{single dev evaluation of the frozen system: 1a and 1b nDCG@10, compared with train.}
+
+\section{Compute}
+All GPU work ran on free Kaggle T4 GPUs (16\,GB, no bf16, no FlashAttention). Corpus embedding:
+6.0 hours on two GPUs. Reranking: 29.7 seconds per query on two GPUs with vLLM, 7.6 hours for
+896 queries; prompts average 6.5k tokens per window, and the run is bound by prompt processing.
+Scoring, fusion and all analyses ran on a CPU laptop.
+
+\section{Limitations}
+Reranking was measured on 74\% of the training queries. Its cost scales with the number of test
+queries, not the corpus. We did not tune the reranking depth. The first stage uses the smallest
+DIVER retriever. Query rewriting (TEMPO's strongest reported lever) was not attempted. All
+choices were made on training data from the same 13 domains as the test set
+\pending{confirm with organizers that test domains match}.
+
+\section*{Models and data}
+\texttt{AQ-MedAI/Diver-Retriever-0.6B} (Apache-2.0); \texttt{liuwenhan/reasonrank-7B}, revision
+\texttt{3444046} (MIT); scoring with \texttt{pytrec\_eval} 0.5.10 \citep{vangysel2018pytreceval}.
+No external documents were indexed, no gold labels or guidance annotations were used at
+inference, and no model was trained or fine-tuned. Code: \pending{public repository URL}.
+
+\bibliography{references}
+
+\end{document}
