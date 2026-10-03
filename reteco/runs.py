@@ -21,7 +21,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable, Sequence
 
-__all__ = ["rank_documents", "write_run", "read_run", "run_from_scores", "DEFAULT_TAG", "TOP_K"]
+__all__ = ["rank_documents", "write_run", "read_run", "run_from_scores", "remap_run", "read_run_ranked",
+           "DEFAULT_TAG", "TOP_K"]
 
 DEFAULT_TAG = "cuet_al_masaar"
 TOP_K = 1000  # the organizers score the top-1000; their written run files truncate to 100
@@ -83,6 +84,27 @@ def write_run(path: Path, ranked: dict[str, list[tuple[str, float]]],
     return path
 
 
+def remap_run(ranked: dict[str, list[tuple[str, float]]],
+              duplicate_map: dict[str, str]) -> dict[str, list[tuple[str, float]]]:
+    """Move a v1.0 run onto the v1.1 corpus ids (the organizers' documented recipe).
+
+    "replace each document ID through the map and drop repeated IDs within a ranking": ids
+    absent from the map are already v1.1 ids and pass through. When two entries collapse onto
+    one id the **first** (best-ranked) is kept with its own score, so order is preserved.
+    """
+    out: dict[str, list[tuple[str, float]]] = {}
+    for topic_id, docs in ranked.items():
+        seen: set[str] = set()
+        kept: list[tuple[str, float]] = []
+        for doc_id, score in docs:
+            doc_id = duplicate_map.get(doc_id, doc_id)
+            if doc_id not in seen:
+                seen.add(doc_id)
+                kept.append((doc_id, score))
+        out[topic_id] = kept
+    return out
+
+
 def read_run(path: Path) -> dict[str, list[str]]:
     """Read a TREC run into ``{topic: [doc_id ordered by rank]}``.
 
@@ -100,6 +122,17 @@ def read_run(path: Path) -> dict[str, list[str]]:
         topic_id: [d for _, _, d in sorted(items, key=lambda r: (r[0], -r[1]))]
         for topic_id, items in rows.items()
     }
+
+
+def read_run_ranked(path: Path) -> dict[str, list[tuple[str, float]]]:
+    """Read a TREC run into ``{topic: [(doc_id, score), ...]}`` in rank order."""
+    rows: dict[str, list[tuple[int, str, float]]] = {}
+    with Path(path).open(encoding="utf-8") as handle:
+        for line in handle:
+            if line.strip():
+                topic_id, _, doc_id, rank, score, _tag = line.split()
+                rows.setdefault(topic_id, []).append((int(rank), doc_id, float(score)))
+    return {t: [(d, s) for _, d, s in sorted(r)] for t, r in rows.items()}
 
 
 def read_run_with_scores(path: Path) -> dict[str, dict[str, float]]:

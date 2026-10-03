@@ -4,7 +4,7 @@
 > Update it at the end of every session: what changed, what is *verified*, what is next.
 > A number appears here only if code in this repo produced it and it is in `results/ledger.csv` (§5.6).
 
-Last updated: 2026-09-24
+Last updated: 2026-10-03
 
 ---
 
@@ -207,7 +207,62 @@ sliding windows, ranks 31–100 untouched. Ledger `phase7_rerank_reasonrank7b_d3
 - Whether T4×2 bills quota at 1× or 2× is **still unmeasured** and now matters: 7.64 h wall is
   7.6 or 15.3 GPU-hours.
 
+## Status check 2026-10-03
+
+- `pytest tests/`: 223 passed. No code or results changed.
+- Official site re-read (index, participate, data, evaluation): registration, platform, team
+  limits, submission caps, run naming and exact paper dates are all still unpublished. Window
+  10–31 Jan 2027 and "macro-averaged over topics" unchanged.
+- The claim that test is "stratified across all 13 domains, ~350 queries" is **not on any of
+  those pages**; `notes/organizer_questions.md` corrected, question reopened. Paper placeholder
+  about test domains stays.
+- Nothing further can be completed without external events: the evaluation window (Phase 9),
+  the paper's test numbers (Phase 10), organizer replies, and the quota-gated v2 step 2.
+
+## Dataset v1.1 — corpus deduplicated by the organizers (found 2026-10-03)
+
+On **2026-09-24 22:17 UTC** the organizers re-released Track 1 as v1.1 (HF commit `c21e10ba`): one
+copy of each duplicated text, 1,654,055 -> 1,167,159 docs, gold preserved, qrels/guidance/
+`split_manifest.json` updated, queries/steps/splits/topic ids unchanged, and a per-domain
+`duplicate_map.json` (removed id -> kept id). v1.0 stays available as revision `v1.0`. Everything
+in Phases 1-8 was done on v1.0. Found because the v2 kernel's own safety check
+("813 candidate docs missing from documents.jsonl") stopped it after 4.5 min.
+
+- **The frozen v1 run is still valid.** Mapped onto v1.1 ids (`eval/remap_runs.py`, or
+  `submit/assemble_runs.py --maps`) and scored on v1.1 qrels: **1a dev 0.3790, 1b dev 0.3341**
+  (v1.0 qrels reproduce 0.3665 / 0.3147 exactly, so the harness is unchanged). The two sets are
+  not comparable: the corpus and qrels differ. Ledger `phase8_v1_dev_rescored_v11`.
+  This was a re-score of the same run, no tuning.
+- **Runbook change for January:** the pipeline stays in v1.0 id space (our embeddings are
+  keyed by v1.0 ids); the rerank kernels look document *text* up through `duplicate_map.json`;
+  `assemble_runs.py --maps <v1.1 track1_tempo>` converts the final runs to v1.1 ids and the
+  checker validates them against the v1.1 `documents.jsonl`. Dry run on dev: 519/519 queries,
+  1,214/1,214 steps, every file VALID.
+- **Not redone:** the Phase 2 BM25 reproduction was against the v1.0 table; whether the
+  organizers' `BASELINE_RESULTS.md` changed for v1.1 is unchecked. Train CV numbers elsewhere in
+  this file are v1.0 numbers.
+- **Second failure, found the same day, and it would have hit January's v1 rerank too:** the
+  Kaggle image drifted, so the unpinned `pip install vllm` left torch (CUDA 13.0) beside a
+  torchaudio built for 12.8 and both vLLM and the transformers fallback failed to import.
+  Both rerank kernels now pin `vllm==0.30.0` (the engine version in the Phase 7/8 logs) and
+  uninstall a non-importing torchaudio. Kernel version 3 of `reteco-v2-rerank` was pushed
+  03:40 and was still RUNNING after 9 min (earlier attempts died at 4.5 and 5.5 min); it is
+  **unverified until it finishes** (~5 h). Image drift can recur: re-run a short GPU smoke
+  before the real test rerank in January.
+- Organizer questions: a corrected 8-question email (averaging level, test domains, v1.1 as the
+  test corpus, caps, team, compute reporting, dates, diagnostics) is saved as a **Gmail draft,
+  not sent**, awaiting Rafi's review. Paper updated for v1.1 (re-score disclosed) and the 1b
+  rerank experiment (train only).
+- Residual: the kernels read texts from the kept copy, which may differ from the original copy
+  by whitespace only (the organizers merge texts that differ only in whitespace).
+
 ## Next step (the ONE step)
+
+**Decision needed from Rafi (v2): include 1b reranking in the submission?** Train evidence says
+yes (+0.075 on 1b). Cost in January is ~32 s/step: with ~800 test steps that is ~7 h wall,
+~14 GPU-h, on top of the 1a rerank, so it fits one week's 30 GPU-h only if the test set is
+small; the assembler falls back to the dense list per step (`--reranked-1b`), so a partial
+run is safe. A dev check would be a ~100-parent random dev subset (~9 GPU-h) — not run.
 
 **Phase 9, in the evaluation window (10–31 Jan 2027):** set `SPLIT = "test"` in the two pipeline
 kernels and run the README's "Producing submission runs" sequence unchanged; submit only if
@@ -223,13 +278,15 @@ Deep research: `reports/RETECO v2 improvement levers.md`. Its build order, all s
 1. **Rank interpolation of reranked and fused 1a lists — REJECTED.** Grid best +0.0039
    [+0.0002, +0.0076] was the best of 15 cells; on held-out halves (3 seeds × 2 folds) the chosen
    cell gives +0.0008 to +0.0049, none significant. Ledger `v2s1_rank_interp_a0.8_k10`.
-2. **Rerank the 1b step lists — READY, BLOCKED ON QUOTA.** Go criterion met: 1b dense recall
-   is 0.440 at 10 and 0.608 at 30 (+0.168 headroom, vs 0.154 for 1a). Step gold ⊂ parent-query
-   gold for 2,762/2,762 train steps, so the risk to watch is promoting a sibling step's documents.
-   Kernel `kaggle/kernels/v2_rerank` (SUBTRACK="1b", 250 random train parents ≈ 570 steps,
-   ~5 h wall) passed the CPU smoke test and its input dataset `reteco-v2-input` is uploaded.
-   **Push it after the weekly quota resets:** `python kaggle/push_kernel.py kaggle/kernels/v2_rerank`.
-   Judge by the official 1b aggregation, paired vs the dense step run on the same parents.
+2. **Rerank the 1b step lists — POSITIVE 2026-10-03: +0.0750 nDCG@10 [+0.0462, +0.1025],
+   significant** (`eval/v2_1b_rerank_eval.py`, ledger `v2s2_rerank_1b_reasonrank7b_d30`). 250
+   random train parents = 616 steps, scored on v1.1 ids/qrels with the official 1b aggregation:
+   dense 0.2694 -> 0.3444. 11 of 13 domains improve (monero 5 queries and quant 4 dip); History,
+   107 of the 250 queries, 0.2818 -> 0.3274. The named risk, promoting a sibling step's gold, is
+   small: sibling-gold docs in the top-10 go 332 -> 372 of 6,152 slots. 1 parse failure.
+   **Cost: 5.53 h wall = ~11 GPU-h for 616 steps, ~32 s/step** (T4x2, billed ~2x). A full dev
+   (1,214 steps) would be ~21.6 GPU-h and exceed one 9 h session, so it is NOT run; v2 = v1 +
+   1b rerank has had no dev check yet (one per major version is allowed, §5.2).
 3. GroupRank-7B throughput test, 4. temporal query views for the 1a pool, 5. depth 50 — only
    after step 2, per the report.
 

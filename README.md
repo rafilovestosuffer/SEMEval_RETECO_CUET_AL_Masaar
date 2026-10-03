@@ -115,13 +115,19 @@ python eval/write_fused_runs.py --split <split> --runs cache/pipeline_<split>/de
 #    upload reteco/ + the fused runs as the reteco-pipeline-input dataset, set SPLIT, push
 python kaggle/push_kernel.py kaggle/kernels/pipeline_rerank
 
+# 3b. (v2) rerank the 1b step lists the same way: kaggle/kernels/v2_rerank with SPLIT="test",
+#     SUBTRACK="1b", SAMPLE_PARENTS=0, and the dense 1b runs in its input dataset; pass the pulled
+#     runs to step 4 as --reranked-1b. Steps it does not reach keep their dense list.
+
 # 4. assemble + validate (local): falls back to the fused list for any topic not reranked,
 #    checks every topic in the split's query files has rows, runs the organizers' checker
-python submit/assemble_runs.py --split <split> --data <track1_tempo with examples/steps_<split>.jsonl> \
+python submit/assemble_runs.py --split <split> --data <v1.1 track1_tempo with examples/steps_<split>.jsonl + documents.jsonl> \
+    --maps <v1.1 track1_tempo with duplicate_map.json> \
     --fused cache/pipeline_<split>/fused [--reranked <pulled rerank runs>] --out cache/pipeline_<split>/final
 ```
 
-Step 4's exit code is the submission gate: non-zero means do not submit.
+Dataset v1.1 (24 Sept 2026) deduplicated the corpus: `--maps` converts our v1.0-id runs to v1.1 ids
+before the checker runs (see PROGRESS.md). Step 4's exit code is the submission gate: non-zero means do not submit.
 **[VERIFY] in January:** the test files' names and layout, and the platform's run-naming rules.
 
 ---

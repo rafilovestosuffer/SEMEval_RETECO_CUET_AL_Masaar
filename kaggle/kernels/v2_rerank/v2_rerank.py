@@ -55,6 +55,7 @@ FAKE = os.environ.get("RERANK_FAKE") == "1"
 
 HF_REPO = "DataScience-UIBK/RETECO-SemEval2027"
 TRACK = "track1_tempo"
+VLLM_VERSION = "0.30.0"   # the version the Phase 7 and Phase 8 runs used (engine log)
 MODEL = "liuwenhan/reasonrank-7B"
 REVISION = "3444046f1481991fd9f2021df231e6c9cb7fcef1"
 
@@ -139,7 +140,8 @@ def fetch_data(domains: list[str]) -> None:
         return
     from huggingface_hub import snapshot_download
     patterns = [f"{TRACK}/{d}/{f}" for d in domains
-                for f in ("documents.jsonl", f"examples_{SPLIT}.jsonl", f"steps_{SPLIT}.jsonl")]
+                for f in ("documents.jsonl", "duplicate_map.json", f"examples_{SPLIT}.jsonl",
+                          f"steps_{SPLIT}.jsonl")]
     snapshot_download(repo_id=HF_REPO, repo_type="dataset", local_dir=str(DATA_DIR),
                       allow_patterns=patterns, max_workers=8)
 
@@ -236,9 +238,17 @@ def main() -> int:
     section("STAGE 1 — dependencies")
     if not FAKE:
         proc = subprocess.run([sys.executable, "-m", "pip", "install", "-q", "--timeout", "120",
-                               "--retries", "5", "vllm", "ftfy", "huggingface_hub"],
+                               "--retries", "5", "vllm==" + VLLM_VERSION, "ftfy", "huggingface_hub"],
                               capture_output=True, text=True)
         print((proc.stdout or "")[-1500:], (proc.stderr or "")[-1500:])
+        # The Kaggle image drifts: in Oct 2026 an unpinned install left torch (CUDA 13.0) beside a
+        # torchaudio built for 12.8, and transformers refused to import. Text reranking never
+        # uses torchaudio, so drop it if it no longer imports.
+        if subprocess.run([sys.executable, "-c", "import torchaudio"],
+                          capture_output=True).returncode != 0:
+            print("  torchaudio does not import against this torch; uninstalling it")
+            subprocess.run([sys.executable, "-m", "pip", "uninstall", "-y", "torchaudio"],
+                           check=False)
         if proc.returncode != 0:
             print("  pip install of vllm failed; the transformers fallback will be used")
             subprocess.run([sys.executable, "-m", "pip", "install", "-q", "ftfy",
@@ -274,10 +284,21 @@ def main() -> int:
                         topic_domain[st["step_id"]] = d
                         parent_of_topic[st["step_id"]] = rec["id"]
         needed = {doc for docs in candidates[d].values() for doc in docs[:DEPTH]}
+        # The candidate runs carry v1.0 ids; the v1.1 corpus (2026-09-24) keeps one copy of each
+        # duplicated text and ships duplicate_map.json (removed id -> kept id). Texts are
+        # identical, so look each candidate's text up under its kept id; ranking stays in v1.0
+        # ids and submit/assemble_runs.py --maps moves the final runs onto v1.1 ids.
+        map_path = DATA_DIR / TRACK / d / "duplicate_map.json"
+        dup = json.loads(map_path.read_text(encoding="utf-8")) if map_path.is_file() else {}
+        kept = {dup.get(doc, doc) for doc in needed}
+        by_kept: dict[str, str] = {}
         for rec in read_jsonl(DATA_DIR / TRACK / d / "documents.jsonl"):
             key = rec.get("id", rec.get("doc_id"))
-            if key in needed:
-                texts[key] = rec["content"]
+            if key in kept:
+                by_kept[key] = rec["content"]
+        for doc in needed:
+            if dup.get(doc, doc) in by_kept:
+                texts[doc] = by_kept[dup.get(doc, doc)]
         missing = needed - texts.keys()
         if missing:
             die(f"{d}: {len(missing)} candidate docs missing from documents.jsonl")

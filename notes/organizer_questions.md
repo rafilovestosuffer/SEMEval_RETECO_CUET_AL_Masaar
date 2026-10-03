@@ -11,12 +11,14 @@ something already documented wastes the organizers' time and our credibility.
 
 ---
 
-## Resolved — do NOT ask
+## Reopened 2026-10-03 — ASK
 
-- ~~Do the hidden test queries come from the same 13 domains?~~ **Answered on the site**: the test
-  set is "stratified across all 13 TEMPO domains", ~350 Track 1 test queries, and "the corpus is
-  never split". So per-domain tuning is safe on coverage grounds; the residual risk is variance at
-  roughly 27 test queries per domain.
+- **Do the hidden test queries come from the same 13 domains?** An earlier version of this file
+  marked this resolved, quoting "stratified across all 13 TEMPO domains" and ~350 test queries.
+  On 2026-10-03 the index, participate and data pages were re-fetched and **none contains that
+  wording or number**; the data page only says the corpus is never split in train/dev, and the
+  site says the test set is "separate, newly annotated". Treat the claim as **[UNVERIFIED]**
+  until a primary source is found, and keep the question in the draft below.
 
 ## ASK FIRST — the two official documents disagree
 

@@ -27,7 +27,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import shutil
+import json
 import sys
 from pathlib import Path
 
@@ -36,7 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from check_format import validate  # noqa: E402
 from reteco.data import read_jsonl  # noqa: E402
-from reteco.runs import read_run_with_scores, write_run  # noqa: E402
+from reteco.runs import read_run_ranked, read_run_with_scores, remap_run, write_run  # noqa: E402
 
 __all__ = ["merge_1a", "expected_topics", "main"]
 
@@ -54,6 +54,15 @@ def merge_1a(fused: dict[str, dict[str, float]], reranked: dict[str, dict[str, f
             source = fused[topic]
         out[topic] = sorted(source.items(), key=lambda kv: kv[1], reverse=True)
     return out, used
+
+
+def merge_runs(base: dict[str, list[tuple[str, float]]],
+               reranked: dict[str, list[tuple[str, float]]]
+               ) -> tuple[dict[str, list[tuple[str, float]]], int]:
+    """Reranked list if present, else the base list, both kept in file rank order (no re-sort,
+    so score ties in the dense fallback keep the order the run was written in)."""
+    used = sum(1 for topic in base if reranked.get(topic))
+    return {topic: reranked.get(topic) or base[topic] for topic in base}, used
 
 
 def expected_topics(domain_dir: Path, split: str) -> dict[str, set[str]]:
@@ -77,14 +86,20 @@ def main() -> int:
                              "steps_<split>.jsonl and documents.jsonl")
     parser.add_argument("--fused", type=Path, required=True)
     parser.add_argument("--reranked", type=Path, default=None)
+    parser.add_argument("--reranked-1b", type=Path, default=None,
+                        help="<domain>/run_1b_<split>.trec from the 1b rerank kernel (v2); "
+                             "steps it did not reach keep their dense list")
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--maps", type=Path, default=None,
+                        help="track1_tempo root with <domain>/duplicate_map.json: move the runs "
+                             "from v1.0 onto the v1.1 (deduplicated) corpus ids before checking")
     parser.add_argument("--no-corpus-check", action="store_true",
                         help="skip passing documents.jsonl to the checker (faster)")
     args = parser.parse_args()
 
     failures: list[str] = []
     domains = sorted(p.name for p in args.fused.iterdir() if p.is_dir())
-    total = {"1a": 0, "1b": 0, "reranked": 0}
+    total = {"1a": 0, "1b": 0, "reranked": 0, "reranked_1b": 0}
     for domain in domains:
         src, dst = args.fused / domain, args.out / domain
         want = expected_topics(args.data / domain, args.split)
@@ -96,8 +111,19 @@ def main() -> int:
             if path.is_file():
                 reranked = read_run_with_scores(path)
         run_1a, used = merge_1a(fused_1a, reranked)
+        dense_1b = read_run_ranked(src / f"run_1b_{args.split}.trec")
+        reranked_1b = {}
+        if args.reranked_1b is not None:
+            path = args.reranked_1b / domain / f"run_1b_{args.split}.trec"
+            if path.is_file():
+                reranked_1b = read_run_ranked(path)
+        run_1b, used_1b = merge_runs(dense_1b, reranked_1b)
+        total["reranked_1b"] += used_1b
+        if args.maps is not None:
+            dup = json.loads((args.maps / domain / "duplicate_map.json").read_text("utf-8"))
+            run_1a, run_1b = remap_run(run_1a, dup), remap_run(run_1b, dup)
         write_run(dst / f"run_1a_{args.split}.trec", run_1a, tag="cuet_al_masaar")
-        shutil.copyfile(src / f"run_1b_{args.split}.trec", dst / f"run_1b_{args.split}.trec")
+        write_run(dst / f"run_1b_{args.split}.trec", run_1b, tag="cuet_al_masaar")
         total["reranked"] += used
 
         for sub in ("1a", "1b"):
@@ -118,7 +144,7 @@ def main() -> int:
         print(f"  {domain:<12} 1a {len(run_1a):>4} topics ({used} reranked), "
               f"1b {len(want['1b']):>4} steps", flush=True)
 
-    print(f"\n  1a {total['1a']} topics ({total['reranked']} reranked), 1b {total['1b']} steps"
+    print(f"\n  1a {total['1a']} topics ({total['reranked']} reranked), 1b {total['1b']} steps ({total['reranked_1b']} reranked)"
           f"\n  runs -> {args.out}")
     if failures:
         print("\n  NOT SUBMITTABLE:")
