@@ -118,6 +118,10 @@ python kaggle/push_kernel.py kaggle/kernels/pipeline_rerank
 # 3b. (v2) rerank the 1b step lists the same way: kaggle/kernels/v2_rerank with SPLIT="test",
 #     SUBTRACK="1b", SAMPLE_PARENTS=0, and the dense 1b runs in its input dataset; pass the pulled
 #     runs to step 4 as --reranked-1b. Steps it does not reach keep their dense list.
+#     A full 1b split (~1,214 steps x ~32 s) needs two 9 h sessions: copy the pulled runs/ into
+#     the input dataset as done/ (done/<domain>/run_1b_<split>.trec), version it, push again.
+#     The kernel skips those topics and carries them into its own runs, so the last session's
+#     runs/ is complete. The same works for SUBTRACK="1a" if the test set outgrows one session.
 
 # 4. assemble + validate (local): falls back to the fused list for any topic not reranked,
 #    checks every topic in the split's query files has rows, runs the organizers' checker

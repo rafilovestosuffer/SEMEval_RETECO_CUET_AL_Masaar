@@ -59,9 +59,9 @@ VLLM_VERSION = "0.30.0"   # the version the Phase 7 and Phase 8 runs used (engin
 MODEL = "liuwenhan/reasonrank-7B"
 REVISION = "3444046f1481991fd9f2021df231e6c9cb7fcef1"
 
-SPLIT = "train"        # train | dev | test
+SPLIT = "dev"          # train | dev | test
 SUBTRACK = "1b"        # 1a: fused query runs | 1b: dense step runs
-SAMPLE_PARENTS = 250   # 1b train experiment: random parent queries, all their steps; 0 = all
+SAMPLE_PARENTS = 0     # 1b train experiment used 250 random parents; 0 = all (dev, test)
 STEP_TEMPLATE = "{query}" + chr(10) + chr(10) + "Step: {step_instruction}"  # official 1b template
 DEPTH = 30               # rerank ranks 1-30: recall@30 0.499 vs @10 0.345 on the fused run
 WINDOW, STEP = 20, 10    # the authors' BRIGHT setting
@@ -127,6 +127,23 @@ def find_input() -> tuple[Path, Path]:
     if not runs:
         die(f"no runs/*/run_{SUBTRACK}_{SPLIT}.trec under {KAGGLE_INPUT}")
     return pkg[0].parent.parent, runs[0].parent.parent
+
+
+def load_resumed(read_run, planned: set[str]) -> dict[str, list[str]]:
+    """Topics a previous session already reranked, from ``done/<domain>/run_*.trec`` in the input.
+
+    A full 1b split (~1,214 steps at ~32 s) does not fit one 9 h session. To continue, put the
+    previous session's ``runs/`` into the input dataset as ``done/`` and push again: those topics
+    are skipped and carried into this session's runs, so the last session's output is complete.
+    """
+    roots = [KAGGLE_INPUT, WORKING / "input_unzipped"]
+    files = sorted({p for r in roots if r.is_dir()
+                    for p in r.glob(f"**/done/*/run_{SUBTRACK}_{SPLIT}.trec")})
+    resumed: dict[str, list[str]] = {}
+    for f in files:
+        resumed.update({t: v for t, v in read_run(f).items() if t in planned})
+    print(f"  resume: {len(files)} done/ run files, {len(resumed)} planned topics already reranked")
+    return resumed
 
 
 def load_candidates(runs_root: Path, read_run) -> dict[str, dict[str, list[str]]]:
@@ -316,6 +333,9 @@ def main() -> int:
     if LIMIT:
         order = order[:LIMIT]
     report["queries_planned"] = len(order)
+    resumed = load_resumed(read_run, set(order))
+    order = [t for t in order if t not in resumed]
+    report["queries_resumed"] = len(resumed)
 
     section("STAGE 3 — model")
     stats: dict[str, int] = {}
@@ -324,7 +344,12 @@ def main() -> int:
     print(f"  backend: {backend}")
 
     section("STAGE 4 — rerank")
-    done: dict[str, list[str]] = {}
+    done: dict[str, list[str]] = dict(resumed)
+    for d in domains:   # carry resumed topics into this session's runs before any new work
+        ranked = {t: reranked_scores(v) for t, v in done.items() if topic_domain[t] == d}
+        if ranked:
+            write_run(OUT_RUNS / d / f"run_{SUBTRACK}_{SPLIT}.trec", ranked, tag=TAG)
+    report["queries_done"] = len(done)
     parse_fail = 0
     rerank_started = time.monotonic()
     with RAW.open("w", encoding="utf-8") as raw:
@@ -355,8 +380,9 @@ def main() -> int:
             report.update({"queries_done": len(done), "parse_failures": parse_fail,
                            "rerank_seconds": round(el, 1), "stats": dict(stats)})
             save()
-            print(f"  chunk {c0 // CHUNK + 1}: {len(done)}/{len(order)} queries, "
-                  f"{time.monotonic() - t0:.0f}s this chunk, {el / len(done):.2f}s/query, "
+            print(f"  chunk {c0 // CHUNK + 1}: {len(done)}/{len(order) + len(resumed)} queries, "
+                  f"{time.monotonic() - t0:.0f}s this chunk, "
+                  f"{el / (len(done) - len(resumed)):.2f}s/query, "
                   f"parse failures {parse_fail}, stats {stats}", flush=True)
             if c0 == 0 and parse_fail > 0.2 * max(len(log), 1):
                 die(f"{parse_fail} of {len(log)} windows unparseable in the first chunk — "

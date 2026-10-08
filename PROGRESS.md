@@ -4,7 +4,7 @@
 > Update it at the end of every session: what changed, what is *verified*, what is next.
 > A number appears here only if code in this repo produced it and it is in `results/ledger.csv` (§5.6).
 
-Last updated: 2026-10-03
+Last updated: 2026-10-09
 
 ---
 
@@ -256,13 +256,32 @@ in Phases 1-8 was done on v1.0. Found because the v2 kernel's own safety check
 - Residual: the kernels read texts from the kept copy, which may differ from the original copy
   by whitespace only (the organizers merge texts that differ only in whitespace).
 
+## Status 2026-10-09
+
+- **Decision (Rafi, 2026-10-09): v2 = v1 + ReasonRank-7B reranking of the 1b step lists.**
+  Train evidence +0.0750 [+0.0462, +0.1025]; the per-step fallback makes a partial run safe.
+- **Gap found and closed: the rerank kernel could not resume across sessions.** It stops
+  starting chunks at 7.6 h and a second push re-shuffled with the same seed, redoing the same
+  topics, so a full 1b split (~1,214 steps x ~32 s ≈ 10.8 h) would have left ~30% of steps on
+  the dense list. `kaggle/kernels/v2_rerank` now reads `done/<domain>/run_*.trec` from its input,
+  skips those topics and carries them into its own runs (README step 3b).
+  `tests/test_rerank_resume.py` runs the kernel twice in fake mode and checks the two-session
+  output is byte-identical to one session; also checked by hand on IOTA dev. 228 tests pass.
+- **v2's single dev evaluation is running** (§5.2; reason: v2 changes 1b, which v1's dev check
+  did not cover). `reteco-v2-input` versioned with the frozen dense dev 1b runs (1,214 steps, 13
+  domains) and the synced package; `reteco-v2-rerank` version 4 pushed 2026-10-09 03:48 (+06)
+  with `SPLIT="dev"`, `SUBTRACK="1b"`, `SAMPLE_PARENTS=0`. Session 1 should finish ~900 steps;
+  session 2 resumes the rest. Score with `eval/v2_1b_rerank_eval.py --split dev` on v1.1
+  ids/qrels against the v1 dev 1b number (0.3341 on v1.1).
+- Re-checked: site, HF dataset (still v1.1 `c21e10ba`) and starter-kit repo unchanged since
+  2026-10-03; registration, platform, caps and test size still unannounced. No organizer reply.
+- Organizer email draft re-addressed to the mailing list (cc the lead organizer); **not sent**.
+
 ## Next step (the ONE step)
 
-**Decision needed from Rafi (v2): include 1b reranking in the submission?** Train evidence says
-yes (+0.075 on 1b). Cost in January is ~32 s/step: with ~800 test steps that is ~7 h wall,
-~14 GPU-h, on top of the 1a rerank, so it fits one week's 30 GPU-h only if the test set is
-small; the assembler falls back to the dense list per step (`--reranked-1b`), so a partial
-run is safe. A dev check would be a ~100-parent random dev subset (~9 GPU-h) — not run.
+**Finish v2's dev check.** When session 1 ends: pull its `runs/` (pattern below), copy them to
+`cache/v2_input/done/`, version `reteco-v2-input`, push `reteco-v2-rerank` again. After session
+2: score, log `v2_dev` in the ledger, update the paper's 1b section, then freeze v2 (tag).
 
 **Phase 9, in the evaluation window (10–31 Jan 2027):** set `SPLIT = "test"` in the two pipeline
 kernels and run the README's "Producing submission runs" sequence unchanged; submit only if
