@@ -270,8 +270,13 @@ in Phases 1-8 was done on v1.0. Found because the v2 kernel's own safety check
 - **v2's single dev evaluation is running** (§5.2; reason: v2 changes 1b, which v1's dev check
   did not cover). `reteco-v2-input` versioned with the frozen dense dev 1b runs (1,214 steps, 13
   domains) and the synced package; `reteco-v2-rerank` version 4 pushed 2026-10-09 03:48 (+06)
-  with `SPLIT="dev"`, `SUBTRACK="1b"`, `SAMPLE_PARENTS=0`. Session 1 should finish ~900 steps;
-  session 2 resumes the rest. Score with `eval/v2_1b_rerank_eval.py --split dev` on v1.1
+  with `SPLIT="dev"`, `SUBTRACK="1b"`, `SAMPLE_PARENTS=0`. **Session 1: 768/1,214 steps**
+  (6 chunks, vLLM on 2x T4, 32.5-33.2 s/step, 3 parse failures of 1,536 windows, 3 truncated);
+  status CANCEL_ACKNOWLEDGED at ~7.4 h during chunk 7, cause not determined (an Enveda kernel
+  started on the same account minutes before). Runs pulled to `cache/v2_dev_s1/`, staged as
+  `done/` in a new `reteco-v2-input` version. Session 2 (446 steps, ~4.3 h) was refused
+  ("Maximum batch GPU session count of 2 reached": Enveda kernels hold both slots); it is
+  pushed automatically once no other kernel on the account is running. Score with `eval/v2_1b_rerank_eval.py --split dev` on v1.1
   ids/qrels against the v1 dev 1b number (0.3341 on v1.1).
 - Re-checked: site, HF dataset (still v1.1 `c21e10ba`) and starter-kit repo unchanged since
   2026-10-03; registration, platform, caps and test size still unannounced. No organizer reply.
